@@ -1,12 +1,17 @@
 import type { Ref } from 'react';
 
-/** Decorative machinery; its position is driven by the same clock as the emoji physics. */
+/**
+ * Dekorative Baggergrafik ohne eigene Physik oder Interaktion.
+ * EmojiField steuert über ref die Position und data-active im selben Takt wie die Emojis;
+ * CSS animiert Räder, Arm und Staub. aria-hidden hält die Dekoration aus dem Accessibility-Baum.
+ */
 export default function Excavator({ ref }: { ref: Ref<HTMLDivElement> }) {
   return <div ref={ref} className="excavator" data-active="false" aria-hidden="true">
     <span className="excavator-caption">Platz für neue Ideen.</span>
     <div className="excavator-dust"><i/><i/><i/></div>
     <svg viewBox="0 0 180 124" fill="none">
       <ellipse cx="85" cy="116" rx="70" ry="5" fill="#353047" opacity=".09"/>
+      {/* Separate SVG-Gruppen erlauben CSS-Animationen um die jeweiligen Drehpunkte. */}
       <g className="excavator-chassis">
         <rect x="20" y="94" width="90" height="22" rx="11" fill="#414353"/>
         <rect x="27" y="99" width="76" height="12" rx="6" fill="#777785"/>

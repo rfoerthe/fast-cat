@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiError, classify, parseAnswers, parseQuery } from './classify.ts';
 import { EMOJIS } from '../shared/emojis.ts';
+/** Vollständige, deterministische Anbieterantwort mit abwechselnd niedrigen und hohen Bewertungen. */
 const validAnswers = () => Object.fromEntries(EMOJIS.map(({id}, i) => [id, { type:'noul', noul: i % 2 ? 0.15 : 0.96 }]));
+// Ungültige Eingaben müssen scheitern, bevor kostenpflichtige Anbieteraufrufe möglich sind.
 test('validates input before sending paid requests', () => {
   assert.equal(parseQuery({query:'  Eine Band gründen  '}), 'Eine Band gründen');
   for (const body of [null, {}, {query:12}, {query:'  '}, {query:'a'.repeat(301)}]) assert.throws(() => parseQuery(body), ApiError);
 });
+// Vollständigkeit, eindeutige Symbole und der erlaubte Wahrscheinlichkeitsbereich bilden den Datenvertrag.
 test('all 180 independent scores are required and probabilities must be valid', () => {
   assert.equal(EMOJIS.length, 180);
   assert.equal(new Set(EMOJIS.map(e => e.symbol)).size, 180);
@@ -19,11 +22,13 @@ test('all 180 independent scores are required and probabilities must be valid', 
   assert.throws(() => parseAnswers({answers:incomplete}), ApiError);
   assert.throws(() => parseAnswers({answers:{emoji_0:{type:'choice',noul:0.9}}}), ApiError);
 });
+// Der injizierte Fetch-Stub prüft den Request und liefert ausschließlich lokale Testdaten.
 test('uses one Decisions request, valid HTTP headers and stable emoji IDs', async () => {
   const oldKey = process.env.OPENROUTER_API_KEY;
   process.env.OPENROUTER_API_KEY = 'test-placeholder';
   try {
     let count = 0;
+    /** Prüft Header und Batch-Struktur und ersetzt den echten OpenRouter-Aufruf. */
     const fetcher: typeof fetch = async (url, init) => {
       count++;
       assert.equal(url, 'https://openrouter.ai/api/alpha/decisions');
@@ -41,5 +46,6 @@ test('uses one Decisions request, valid HTTP headers and stable emoji IDs', asyn
     delete process.env.OPENROUTER_API_KEY;
     await assert.rejects(classify('Test', new AbortController().signal, fetcher), (error:unknown) => error instanceof ApiError && error.status === 503);
     assert.equal(count, 1);
+  // Prozessweite Konfiguration auch dann wiederherstellen, wenn eine Assertion fehlschlägt.
   } finally { if (oldKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = oldKey; }
 });

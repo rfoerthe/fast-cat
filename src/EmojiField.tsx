@@ -3,16 +3,32 @@ import Matter from 'matter-js';
 import { EMOJIS } from '../shared/emojis';
 import Excavator from './Excavator';
 
-type Props = { scores: Record<string, number> | null; threshold: number; onSelect: (id: string) => void };
+/** Eingaben des Felds; Wahrscheinlichkeiten und Prozentwerte verwenden unterschiedliche Skalen. */
+type Props = {
+  /** Bewertungen nach Katalog-ID im Bereich [0, 1]; null zeigt den Zustand ohne Ergebnis. */
+  scores: Record<string, number> | null;
+  /** Inklusive Treffergrenze in Prozent. */
+  threshold: number;
+  /** Meldet die angeklickte Katalog-ID an die Detailanzeige der Oberfläche. */
+  onSelect: (id: string) => void;
+};
+/**
+ * Ordnet Treffer oberhalb des Bodens an und simuliert die übrigen Emojis mit Matter.js.
+ * React verwaltet die bedienbaren Buttons; der Animationsloop aktualisiert ihre DOM-Positionen.
+ * Bei reduzierter Bewegung werden feste Positionen ohne Physikschritte verwendet.
+ */
 export default function EmojiField({ scores, threshold, onSelect }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const excavator = useRef<HTMLDivElement>(null);
+  // DOM-Referenzen erlauben Positionsupdates pro Frame ohne zusätzliche React-Renderings.
   const elements = useRef(new Map<string, HTMLButtonElement>());
+  // Der langlebige Animationsloop liest aktuelle Props, ohne die Physikwelt neu aufzubauen.
   const latest = useRef({ scores, threshold });
   const [reduced, setReduced] = useState(false);
   useEffect(() => { latest.current = { scores, threshold }; }, [scores, threshold]);
   useEffect(() => {
     const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+    /** Übernimmt die Systemeinstellung auch bei Änderungen während der Nutzung. */
     const update = () => setReduced(media.matches);
     update(); media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
@@ -20,17 +36,24 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
   useEffect(() => {
     const host = container.current;
     if (!host) return;
+    // Alle Positionen sind Pixel relativ zum Feld; die y-Achse zeigt nach unten.
     let width = host.clientWidth, height = host.clientHeight;
     let searchBottom = 380;
-    // Only guide surplus emojis while the bucket passes; physics settles them afterwards.
+    // Nur abgeholte Überschüsse werden zum Ziel geführt; danach übernimmt wieder die Schwerkraft.
     const grading = new Map<number, Matter.Vector>();
+    // Aus der Trefferliste entfernte Emojis lösen zeitversetzt eine Baggerfahrt aus.
     let previousSelected = new Set<string>();
     let cleanupDue: number | null = null;
+    // Simulationszeit in Millisekunden; große reale Frame-Pausen werden im tick begrenzt.
     let elapsed = 0;
+    // Merkt eine frühere Baggerfahrt, damit Größenänderungen eine neue Einebnung anstoßen können.
     let hasGraded = false;
+    // Geglättete Höhe und Neigung für die dekorative Fahrt über den Emoji-Haufen.
     let machineY: number | null = null;
     let machineTilt = 0;
+    // Pro Fahrt: Startzeit, Dauer, Zielpositionen und ursprüngliche x-Positionen zur Abholung.
     let sweep: { started: number; duration: number; targets: Map<number, Matter.Vector>; pickup: Map<number, number> } | null = null;
+    /** Erzeugt zentrierte Bodenreihen mit deterministischem Versatz für reduzierte Bewegung. */
     const floorLayout = (indices: number[]) => {
       const spacing = width < 600 ? 27 : 35;
       const columns = Math.max(1, Math.floor((width - 40) / spacing));
@@ -43,12 +66,17 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
         }];
       }));
     };
-    // The excavator moves supports directly and disables their collisions. Sleeping
-    // bodies do not wake when that support disappears, so keep gravity active.
+    // Der Bagger verschiebt Unterlagen bei deaktivierten Kollisionen. Schlafende Körper
+    // würden deren Wegfall nicht bemerken; deshalb bleibt die Simulation für alle aktiv.
     const engine = Matter.Engine.create({ enableSleeping: false });
     engine.gravity.y = 1.3;
+    // Die Array-Indizes entsprechen dem Katalog und bleiben während dieser Physikwelt stabil.
     const bodies = EMOJIS.map((_, i) => Matter.Bodies.circle(24 + ((i * 67) % Math.max(1, width - 48)), height - 260 - Math.floor(i / 20) * 34, 17, { restitution: .38, friction: .45, frictionAir: .025, angle: (i % 7 - 3) * .17 }));
     Matter.Composite.add(engine.world, bodies);
+    /**
+     * Teilt den Haufen in Spalten entlang der x-Achse und plant Ziele nur für überzählige Körper.
+     * Bevorzugt die leerste, bei Gleichstand die nächstgelegene Spalte; verändert noch keine Körper.
+     */
     const roughTargets = (resting: number[]) => {
       const diameter = width < 600 ? 24 : 34;
       const count = Math.max(1, Math.floor((width - 40) / (diameter * 1.15)));
@@ -58,7 +86,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       const capacity = Math.ceil(resting.length / count) + 1;
       const targets = new Map<number, Matter.Vector>();
       bins.forEach((bin, source) => {
-        // Leave the lower bed where it landed and shave just the excess off each peak.
+        // Untere Körper liegen weiter unten auf der y-Achse; nur die höchsten Spitzen abtragen.
         bin.sort((a, b) => bodies[b].position.y - bodies[a].position.y);
         while (bin.length > capacity) {
           const i = bin.pop()!;
@@ -78,8 +106,10 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       return targets;
     };
     let walls: Matter.Body[] = [];
+    /** Passt Boden, Seitenwände und Körperradien an das Layout an und verwirft alte Fahrziele. */
     const rebuildWalls = () => {
       width = host.clientWidth; height = host.clientHeight;
+      // Die Unterkante der Suche begrenzt das Trefferraster, damit Buttons frei zugänglich bleiben.
       const search = host.parentElement?.querySelector('.search-zone');
       if (search) searchBottom = search.getBoundingClientRect().bottom - host.getBoundingClientRect().top + 30;
       Matter.Composite.remove(engine.world, walls);
@@ -102,18 +132,25 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
         Matter.Sleeping.set(body, false);
       });
     };
+    // Auch Änderungen der Suchhöhe (z. B. umgebrochene Fehlermeldungen) beeinflussen das Raster.
     const observer = new ResizeObserver(rebuildWalls); observer.observe(host);
     const search = host.parentElement?.querySelector('.search-zone');
     if (search) observer.observe(search);
     rebuildWalls();
     let frame = 0, previous = 0;
+    /**
+     * Ein Animationsschritt: Treffer bestimmen, Physik/Sortierung anwenden und DOM aktualisieren.
+     * @param time Monotoner requestAnimationFrame-Zeitstempel in Millisekunden.
+     */
     const tick = (time: number) => {
+      // Maximal einen 60-Hz-Schritt nachholen, damit Tab-Pausen keine Physiksprünge verursachen.
       const delta = previous ? Math.min(time - previous, 1000 / 60) : 1000 / 60; previous = time;
       elapsed += delta;
       const { scores: current, threshold: limit } = latest.current;
       const selected = EMOJIS.filter(emoji => current && current[emoji.id] >= limit / 100).sort((a, b) => current![b.id] - current![a.id]);
       const indices = new Map(selected.map((emoji, i) => [emoji.id, i]));
       const selectedIds = new Set(indices.keys());
+      // Zurückfallenden Treffern 900 ms Zeit geben, bevor die nächste Fahrt beginnen darf.
       if ([...previousSelected].some(id => !selectedIds.has(id))) cleanupDue = elapsed + 900;
       previousSelected = selectedIds;
       const resting = bodies.map((_, i) => i).filter(i => !selectedIds.has(EMOJIS[i].id));
@@ -134,6 +171,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       const machineSize = width < 600 ? 116 : 154;
       const bucketX = -machineSize + (width + machineSize * 2) * sweepProgress;
       const reducedTargets = reduced ? floorLayout(resting) : null;
+      // Auf großen Ansichten bleibt rechts Platz für den Ergebnisinspektor.
       const availableWidth = width >= 960 ? width - 320 : width;
       const gridWidth = Math.min(availableWidth - 40, selected.length > 80 ? 720 : 490);
       const columns = Math.max(4, Math.floor(gridWidth / 46));
@@ -141,9 +179,10 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       const startY = searchBottom;
       const floorSpacing = width < 600 ? 27 : 35;
       const floorRows = Math.ceil(resting.length / Math.max(1, Math.floor((width - 40) / floorSpacing)));
-      // Allow a loose, uneven bed and enough headroom for the machine above it.
+      // Unter dem Trefferraster Raum für einen unebenen Haufen und den Bagger reservieren.
       const reserve = Math.max(150, floorRows * floorSpacing + 130);
       const playground = host.parentElement;
+      // CSS nutzt diese Werte als Mindesthöhe und als Abstand für den Feldhinweis.
       playground?.style.setProperty('--emoji-field-min-height', `${Math.ceil(startY + Math.max(rows, 1) * 30 + reserve)}px`);
       playground?.style.setProperty('--emoji-floor-height', `${reserve}px`);
       const step = Math.min(45, Math.max(10, (height - startY - reserve) / Math.max(rows, 1)));
@@ -151,6 +190,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       bodies.forEach((body, i) => {
         const id = EMOJIS[i].id;
         const selectedIndex = indices.get(id);
+        // Treffer verlassen die Kollisionssimulation und bewegen sich zum sortierten Raster.
         if (selectedIndex !== undefined) {
           grading.delete(i);
           sweep?.targets.delete(i);
@@ -159,6 +199,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
           const inRow = Math.min(columns, selected.length - Math.floor(selectedIndex / columns) * columns);
           const targetX = availableWidth / 2 + ((selectedIndex % columns) - (inRow - 1) / 2) * 45;
           const targetY = startY + Math.floor(selectedIndex / columns) * step;
+          // Exponentielle Annäherung berücksichtigt die Frame-Dauer; reduzierte Bewegung springt direkt.
           const ease = reduced ? 1 : 1 - Math.exp(-delta / 95);
           Matter.Body.setPosition(body, { x: body.position.x + (targetX - body.position.x) * ease, y: body.position.y + (targetY - body.position.y) * ease });
           Matter.Body.setAngle(body, body.angle * (1 - ease));
@@ -168,10 +209,12 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
           Matter.Body.setPosition(body, reducedTargets!.get(i)!);
           Matter.Body.setAngle(body, Math.sin(i * 7) * .3);
         } else if (sweep?.targets.has(i) && bucketX >= sweep.pickup.get(i)!) {
+          // Erst wenn die Schaufel die ursprüngliche Position erreicht, übernimmt sie den Körper.
           grading.set(i, sweep.targets.get(i)!);
           if (!body.isStatic) Matter.Body.setStatic(body, true);
           body.collisionFilter.mask = 0;
         } else if (body.isStatic && !grading.has(i)) {
+          // Ehemalige Treffer ohne Baggerführung wieder als kollidierende, fallende Körper freigeben.
           body.collisionFilter.mask = 0xFFFFFFFF;
           Matter.Body.setStatic(body, false); Matter.Sleeping.set(body, false);
           Matter.Body.setVelocity(body, { x: (i % 5 - 2) * .4, y: 0 });
@@ -184,6 +227,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
             y: body.position.y + (floorTarget.y - body.position.y) * ease,
           });
           Matter.Body.setAngle(body, body.angle + (Math.sin(i * 7) * .35 - body.angle) * ease);
+          // Ab weniger als einem Pixel Restweg übernimmt die Physik das natürliche Nachrutschen.
           if (Math.hypot(floorTarget.x - body.position.x, floorTarget.y - body.position.y) < 1) {
             grading.delete(i);
             sweep?.targets.delete(i);
@@ -196,11 +240,13 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
         }
         const el = elements.current.get(id);
         if (el) el.style.fontSize = selectedIndex !== undefined ? `${Math.min(width < 600 ? 26 : 30, step + 4)}px` : `${width < 600 ? 24 : 30}px`;
+        // Matter positioniert den Mittelpunkt; der 40-px-Button wird über seine linke obere Ecke versetzt.
         if (el) el.style.transform = `translate(${body.position.x - 20}px, ${body.position.y - 20}px) rotate(${body.angle}rad)`;
       });
       if (sweep && excavator.current) {
         const scale = machineSize / 180;
         const machineX = bucketX - machineSize * .9;
+        /** Schätzt die Oberkante ruhender, lokal gestützter Körper unter einer Raupenposition. */
         const surfaceAt = (x: number) => {
           const sampleX = Math.max(25, Math.min(width - 25, x));
           let surface = height;
@@ -208,8 +254,9 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
             const body = bodies[i];
             const radius = body.circleRadius || 17;
             const distance = Math.abs(body.position.x - sampleX);
-            // Airborne emojis are not ground. The tracks follow the settled pile.
+            // Bewegte oder gerade geführte Emojis bilden keine verlässliche Fahrbahn.
             if (!grading.has(i) && distance < radius + 4 && body.position.y > height - reserve && Math.abs(body.velocity.y) < 2) {
+              // Bodenkontakt oder ein naher Körper darunter genügt als lokale Stützheuristik.
               const supported = body.position.y + radius >= height - 12 || resting.some(j => {
                 const below = bodies[j];
                 const dy = below.position.y - body.position.y;
@@ -222,6 +269,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
           });
           return surface;
         };
+        // Zwei Stichproben unter den Raupen bestimmen Höhe und eine begrenzte Neigung.
         const back = surfaceAt(machineX + 35 * scale);
         const front = surfaceAt(machineX + 95 * scale);
         const targetY = Math.min(back, front) - 116 * scale + 7;
@@ -238,6 +286,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
+    // Beim Unmount oder Wechsel der Bewegungseinstellung alle externen Ressourcen freigeben.
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
@@ -249,6 +298,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
   }, [reduced]);
   return <div className="emoji-field" ref={container} aria-label="180 Emojis – passende steigen auf, übrige fallen nach unten">
     <Excavator ref={excavator}/>
+    {/* Die Ref-Map folgt Mount und Unmount der Buttons; Labels bleiben über React aktuell. */}
     {EMOJIS.map(emoji => {
       const score = scores?.[emoji.id];
       const selected = score !== undefined && score >= threshold / 100;

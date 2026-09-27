@@ -3,24 +3,38 @@ import { ArrowUpRight, Cat, Check, ChevronDown, CircleHelp, Copy, LoaderCircle, 
 import { EMOJIS, EXAMPLES } from '../shared/emojis';
 import { useClassification } from './useClassification';
 import EmojiField from './EmojiField';
+/**
+ * Verbindet Suche, Klassifizierung, Emoji-Feld und Ergebnisinspektor.
+ * Die Treffer-Schwelle filtert vorhandene Bewertungen lokal und löst keine API-Anfrage aus.
+ */
 export default function App() {
+  // Such- und Auswahlzustand steuern Feld, Rangliste und Detailanzeige gemeinsam.
   const [query, setQuery] = useState('');
   const [threshold, setThreshold] = useState(60);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Kurzlebige UI-Rückmeldungen für Hilfe und Zwischenablage.
   const [help, setHelp] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState('');
+  // null kennzeichnet die noch unbekannte Serverkonfiguration vor der Health-Antwort.
   const [configured, setConfigured] = useState<boolean | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const helpDialog = useRef<HTMLDialogElement>(null);
   const { result, pending, error, retry } = useClassification(query);
+  // Den Konfigurationsstatus einmal laden und den Aufruf beim Unmount abbrechen.
   useEffect(() => { const controller = new AbortController(); fetch('/api/health', { signal: controller.signal }).then(r => r.json()).then(data => setConfigured(data.configured)).catch(() => {}); return () => controller.abort(); }, []);
+  // Die Kopierbestätigung nach 1,8 Sekunden zurücksetzen.
   useEffect(() => { if (!copied) return; const timeout = window.setTimeout(() => setCopied(false), 1800); return () => clearTimeout(timeout); }, [copied]);
+  // Den React-Zustand mit der imperativen API des nativen modalen Dialogs synchronisieren.
   useEffect(() => { if (help) helpDialog.current?.showModal(); else helpDialog.current?.close(); }, [help]);
+  // Eine Kopie sortieren, damit die gemeinsame Katalogreihenfolge unverändert bleibt.
   const ranked = result ? [...EMOJIS].sort((a, b) => result.scores[b.id] - result.scores[a.id]) : [];
+  // Der Regler verwendet Prozent, die API dagegen Wahrscheinlichkeiten zwischen 0 und 1.
   const matches = ranked.filter(emoji => result!.scores[emoji.id] >= threshold / 100);
   const selected = EMOJIS.find(emoji => emoji.id === selectedId);
+  /** Übernimmt Texteingaben oder Beispiele, löscht alte UI-Rückmeldungen und fokussiert die Suche. */
   const choose = (value: string) => { setQuery(value); setSelectedId(null); setCopied(false); setCopyError(''); input.current?.focus(); };
+  /** Kopiert alle aktuellen Treffer in Rangfolge und meldet auch verweigerte Clipboard-Zugriffe. */
   const copy = async () => { try { await navigator.clipboard.writeText(matches.map(emoji => emoji.symbol).join(' ')); setCopied(true); setCopyError(''); } catch { setCopyError('Kopieren ist in diesem Browser nicht verfügbar.'); } };
   return <div className="app-shell">
     <header className="header"><a href="/" className="brand" aria-label="fast cat Startseite"><span className="brand-icon"><Cat size={22}/></span><span>fast cat<span className="brand-dot">.</span></span></a><span className="header-divider"/><span className="header-label">EMOJI PLAYGROUND</span><div className="header-right"><span className={`connection ${configured === false ? 'offline' : ''}`}><i/>{configured === null ? 'Verbinde …' : configured ? (result ? 'Jev verbunden' : 'Jev bereit') : 'API-Key fehlt'}</span><button className="icon-button help-button" aria-label="So funktioniert’s" onClick={() => setHelp(true)}><CircleHelp size={19}/></button></div></header>
