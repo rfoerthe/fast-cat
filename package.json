@@ -2,6 +2,7 @@
   "name": "fast-cat",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx watch server/index.ts",
