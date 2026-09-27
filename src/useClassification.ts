@@ -15,34 +15,70 @@ export function useClassification(query: string) {
   // Der Cache gehört dieser Hook-Instanz; Treffer verändern die Einfügereihenfolge nicht.
   const cache = useRef(new Map<string, Classification>());
   const normalized = query.trim();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt löst einen erneuten Request für denselben Suchtext aus.
   useEffect(() => {
     // Zusätzlich zum AbortSignal schützt dieses Flag vor spät eintreffenden Rückmeldungen.
     let current = true;
     const controller = new AbortController();
     setError('');
-    if (!normalized) { setResult(null); setPending(false); return; }
+    if (!normalized) {
+      setResult(null);
+      setPending(false);
+      return;
+    }
     const saved = cache.current.get(normalized);
-    if (saved) { setResult(saved); setPending(false); return; }
+    if (saved) {
+      setResult(saved);
+      setPending(false);
+      return;
+    }
     setPending(true);
     // Erst nach der Tipp-Pause senden; das Cleanup entfernt auch noch nicht gestartete Aufrufe.
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await fetch('/api/classify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: normalized }), signal: controller.signal });
+        const response = await fetch('/api/classify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: normalized }),
+          signal: controller.signal,
+        });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Die Auswertung ist fehlgeschlagen.');
+        if (!response.ok)
+          throw new Error(data.error || 'Die Auswertung ist fehlgeschlagen.');
         if (current) {
           cache.current.set(normalized, data);
           // FIFO-Verdrängung: Bei mehr als 30 Texten entfällt der zuerst gespeicherte Eintrag.
-          if (cache.current.size > 30) cache.current.delete(cache.current.keys().next().value!);
+          if (cache.current.size > 30) {
+            const oldest = cache.current.keys().next();
+            if (!oldest.done) cache.current.delete(oldest.value);
+          }
           setResult(data);
         }
       } catch (error) {
-        if (current && !controller.signal.aborted) setError(error instanceof Error ? error.message : 'Die Auswertung ist fehlgeschlagen.');
-      } finally { if (current) setPending(false); }
+        if (current && !controller.signal.aborted)
+          setError(
+            error instanceof Error
+              ? error.message
+              : 'Die Auswertung ist fehlgeschlagen.',
+          );
+      } finally {
+        if (current) setPending(false);
+      }
     }, 280);
-    return () => { current = false; window.clearTimeout(timeout); controller.abort(); };
+    return () => {
+      current = false;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
   }, [normalized, attempt]);
   // Ergebnisse anderer Texte ausblenden, auch im Render vor dem nächsten Effektlauf.
   // retry durchläuft denselben Cache-Pfad; vorhandene Treffer werden dadurch nicht neu geladen.
-  return { result: result?.query === normalized ? result : null, pending: Boolean(normalized) && (pending || (!error && result?.query !== normalized)), error, retry: () => setAttempt(value => value + 1) };
+  return {
+    result: result?.query === normalized ? result : null,
+    pending:
+      Boolean(normalized) &&
+      (pending || (!error && result?.query !== normalized)),
+    error,
+    retry: () => setAttempt((value) => value + 1),
+  };
 }

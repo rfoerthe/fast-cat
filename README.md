@@ -25,6 +25,15 @@ npm start
 
 `npm start` liefert den zuvor erstellten Produktionsbuild aus. Der Server bindet ausschließlich an `127.0.0.1`. Die Anwendung ist für lokale Nutzung gebaut; für eine öffentliche Bereitstellung wären Nutzerauthentifizierung und zusätzliche Kosten-/Ratenlimits nötig.
 
+## Codequalität
+
+```sh
+npm run format  # Unterstützte Dateien mit Biome formatieren
+npm run lint    # Empfohlene Biome-Lint-Regeln prüfen
+```
+
+Die gemeinsame Konfiguration liegt in `biome.json`. Biome berücksichtigt `.gitignore`.
+
 ## Verhalten
 
 - Beliebiger Text, automatische Auswertung nach 280 ms Tipp-Pause.
