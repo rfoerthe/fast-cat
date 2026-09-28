@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Matter from 'matter-js';
 import { EMOJIS } from '../shared/emojis';
-import Excavator from './Excavator';
+import Excavator, { trackLinkTransform } from './Excavator';
 
 /** Eingaben des Felds; Wahrscheinlichkeiten und Prozentwerte verwenden unterschiedliche Skalen. */
 type Props = {
@@ -55,6 +55,13 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
     // Geglättete Höhe und Neigung für die dekorative Fahrt über den Emoji-Haufen.
     let machineY: number | null = null;
     let machineTilt = 0;
+    let previousMachineX: number | null = null;
+    let trackDistance = 0;
+    const trackLinks = Array.from(
+      excavator.current?.querySelectorAll<SVGGElement>('[data-track-link]') ??
+        [],
+      (element) => ({ element, offset: Number(element.dataset.trackLink) }),
+    );
     // Pro Fahrt: Startzeit, Dauer, Zielpositionen und ursprüngliche x-Positionen zur Abholung.
     let sweep: {
       started: number;
@@ -181,6 +188,8 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       grading.clear();
       sweep = null;
       machineY = null;
+      machineTilt = 0;
+      previousMachineX = null;
       if (excavator.current) excavator.current.dataset.active = 'false';
       bodies.forEach((body, i) => {
         if (!previousSelected.has(EMOJIS[i].id)) {
@@ -241,6 +250,8 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
         };
         cleanupDue = null;
         machineY = null;
+        machineTilt = 0;
+        previousMachineX = null;
         hasGraded = true;
         if (excavator.current) excavator.current.dataset.active = 'true';
       }
@@ -366,8 +377,9 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
         const machineX = bucketX - machineSize * 0.9;
         /** Schätzt die Oberkante ruhender, lokal gestützter Körper unter einer Raupenposition. */
         const surfaceAt = (x: number) => {
-          const sampleX = Math.max(25, Math.min(width - 25, x));
-          let surface = height;
+          if (x < 8 || x > width - 8) return height - 8;
+          const sampleX = x;
+          let surface = height - 8;
           resting.forEach((i) => {
             const body = bodies[i];
             const radius = body.circleRadius || 17;
@@ -401,18 +413,51 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
           });
           return surface;
         };
-        // Zwei Stichproben unter den Raupen bestimmen Höhe und eine begrenzte Neigung.
-        const back = surfaceAt(machineX + 35 * scale);
-        const front = surfaceAt(machineX + 95 * scale);
-        const targetY = Math.min(back, front) - 116 * scale + 7;
-        const ease = 1 - Math.exp(-delta / 85);
-        machineY =
-          machineY === null ? targetY : machineY + (targetY - machineY) * ease;
+        // Die ganze Auflagefläche überbrückt Lücken zwischen einzelnen Emojis.
+        const supports = [30, 41, 53, 64, 75, 87, 98].map((x) => ({
+          offset: (x - 64) * scale,
+          y: surfaceAt(machineX + x * scale),
+        }));
+        const back = Math.min(...supports.slice(0, 3).map((point) => point.y));
+        const front = Math.min(...supports.slice(-3).map((point) => point.y));
         const slope = Math.max(
-          -0.18,
-          Math.min(0.18, Math.atan2(front - back, 60 * scale)),
+          -0.24,
+          Math.min(0.24, Math.atan2(front - back, 46 * scale)),
         );
+        const ease = 1 - Math.exp(-delta / 120);
         machineTilt += (slope - machineTilt) * ease;
+        const targetY =
+          Math.min(
+            ...supports.map(
+              (point) => point.y - Math.sin(machineTilt) * point.offset,
+            ),
+          ) -
+          116.5 * scale +
+          2;
+        // Hindernisse sofort aufnehmen, nach einer Kuppe gedämpft absenken.
+        machineY =
+          machineY === null
+            ? targetY
+            : Math.min(targetY, machineY + (targetY - machineY) * ease);
+        if (previousMachineX !== null) {
+          const dx = machineX - previousMachineX;
+          // Federbewegungen dürfen die Kette nicht zusätzlich beschleunigen.
+          trackDistance += dx / (scale * Math.cos(machineTilt));
+        }
+        previousMachineX = machineX;
+        for (const { element, offset } of trackLinks)
+          element.setAttribute(
+            'transform',
+            trackLinkTransform(offset + trackDistance),
+          );
+        excavator.current.style.setProperty(
+          '--drive-angle',
+          `${trackDistance / 10}rad`,
+        );
+        excavator.current.style.setProperty(
+          '--roller-angle',
+          `${trackDistance / 5.5}rad`,
+        );
         excavator.current.style.transform = `translate(${machineX}px, ${machineY}px) rotate(${machineTilt}rad)`;
       }
       if (sweep && sweepProgress === 1) {

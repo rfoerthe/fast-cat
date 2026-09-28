@@ -1,11 +1,36 @@
-import type { Ref } from 'react';
+import { type Ref, useId } from 'react';
+
+const TRACK_STRAIGHT = 68;
+const TRACK_RADIUS = 10;
+const TRACK_LENGTH = 2 * TRACK_STRAIGHT + 2 * Math.PI * TRACK_RADIUS;
+const TRACK_OFFSETS = Array.from(
+  { length: 34 },
+  (_, i) => (i * TRACK_LENGTH) / 34,
+);
+
+/** Kettenglieder laufen oben nach vorn und an der Auflagefläche nach hinten. */
+export function trackLinkTransform(distance: number) {
+  const d = ((distance % TRACK_LENGTH) + TRACK_LENGTH) % TRACK_LENGTH;
+  const arc = Math.PI * TRACK_RADIUS;
+  if (d < TRACK_STRAIGHT) return `translate(${30 + d} 94)`;
+  if (d < TRACK_STRAIGHT + arc) {
+    const angle = (d - TRACK_STRAIGHT) / TRACK_RADIUS - Math.PI / 2;
+    return `translate(${98 + Math.cos(angle) * TRACK_RADIUS} ${104 + Math.sin(angle) * TRACK_RADIUS}) rotate(${(angle * 180) / Math.PI + 90})`;
+  }
+  if (d < 2 * TRACK_STRAIGHT + arc)
+    return `translate(${98 - (d - TRACK_STRAIGHT - arc)} 114) rotate(180)`;
+  const angle = (d - 2 * TRACK_STRAIGHT - arc) / TRACK_RADIUS + Math.PI / 2;
+  return `translate(${30 + Math.cos(angle) * TRACK_RADIUS} ${104 + Math.sin(angle) * TRACK_RADIUS}) rotate(${(angle * 180) / Math.PI + 90})`;
+}
 
 /**
  * Dekorative Baggergrafik ohne eigene Physik oder Interaktion.
  * EmojiField steuert über ref die Position und data-active im selben Takt wie die Emojis;
- * CSS animiert Räder, Arm und Staub. aria-hidden hält die Dekoration aus dem Accessibility-Baum.
+ * der Fahrweg steuert Kettenglieder und Rollen. CSS animiert Aufbau, Arm und Staub.
+ * aria-hidden hält die Dekoration aus dem Accessibility-Baum.
  */
 export default function Excavator({ ref }: { ref: Ref<HTMLDivElement> }) {
+  const trackId = useId();
   return (
     <div ref={ref} className="excavator" data-active="false" aria-hidden="true">
       <span className="excavator-caption">Platz für neue Ideen.</span>
@@ -15,25 +40,72 @@ export default function Excavator({ ref }: { ref: Ref<HTMLDivElement> }) {
         <i />
       </div>
       <svg aria-hidden="true" viewBox="0 0 180 124" fill="none">
-        <ellipse cx="85" cy="116" rx="70" ry="5" fill="#353047" opacity=".09" />
-        {/* Separate SVG-Gruppen erlauben CSS-Animationen um die jeweiligen Drehpunkte. */}
+        <defs>
+          <g id={trackId}>
+            <path
+              d="M30 94H98A10 10 0 0 1 98 114H30A10 10 0 0 1 30 94Z"
+              fill="#363944"
+              stroke="#252832"
+              strokeWidth="5"
+            />
+            <path d="M30 104H98" stroke="#646571" strokeWidth="9" />
+            {[30, 98, 44, 57, 71, 84].map((x, i) => (
+              <g key={x}>
+                <g
+                  className={i < 2 ? 'excavator-drive' : 'excavator-roller'}
+                  style={{ transformOrigin: `${x}px ${i < 2 ? 104 : 107}px` }}
+                >
+                  <circle
+                    cx={x}
+                    cy={i < 2 ? 104 : 107}
+                    r={i < 2 ? 8 : 5.5}
+                    fill={i === 1 ? '#ad874b' : '#777984'}
+                    stroke="#20232c"
+                    strokeWidth="1.5"
+                  />
+                  <path
+                    d={`M${x - 4} ${i < 2 ? 104 : 107}h8M${x} ${i < 2 ? 100 : 103}v8`}
+                    stroke="#3f424e"
+                    strokeWidth="2"
+                  />
+                </g>
+                <circle cx={x} cy={i < 2 ? 104 : 107} r="1.8" fill="#d3cbd0" />
+              </g>
+            ))}
+            <path
+              d="M40 99H88"
+              stroke="#a29583"
+              strokeWidth="3"
+              strokeLinecap="round"
+            />
+            {TRACK_OFFSETS.map((offset) => (
+              <g
+                key={offset}
+                data-track-link={offset}
+                transform={trackLinkTransform(offset)}
+              >
+                <rect
+                  x="-2.5"
+                  y="-2.5"
+                  width="5"
+                  height="5"
+                  rx=".7"
+                  fill="#595c68"
+                  stroke="#282b35"
+                  strokeWidth=".65"
+                />
+                <path d="M-1.5-2h3" stroke="#b2aeb7" strokeWidth="1" />
+                <path d="M0-1v3" stroke="#85838d" strokeWidth=".8" />
+              </g>
+            ))}
+          </g>
+        </defs>
+        <ellipse cx="68" cy="118" rx="52" ry="3" fill="#353047" opacity=".13" />
+        <use href={`#${trackId}`} transform="translate(9 -7)" opacity=".65" />
+        <path d="M36 88H98L106 99H30Z" fill="#55515d" />
+        <use href={`#${trackId}`} />
+        {/* Nur der gefederte Aufbau vibriert; die Raupen behalten ihren Bodenkontakt. */}
         <g className="excavator-chassis">
-          <rect x="20" y="94" width="90" height="22" rx="11" fill="#414353" />
-          <rect x="27" y="99" width="76" height="12" rx="6" fill="#777785" />
-          {[35, 51, 67, 83, 99].map((x) => (
-            <g
-              key={x}
-              className="excavator-wheel"
-              style={{ transformOrigin: `${x}px 105px` }}
-            >
-              <circle cx={x} cy="105" r="5" fill="#414353" />
-              <path
-                d={`M${x - 3} 105h6M${x} 102v6`}
-                stroke="#c4bfce"
-                strokeWidth="1.5"
-              />
-            </g>
-          ))}
           <path d="M25 77Q25 72 31 72H87L105 86V94H25Z" fill="#e5a848" />
           <path d="M33 75V46Q33 41 39 41H66L77 76Z" fill="#f6c667" />
           <path d="M40 48H61L68 68H40Z" fill="#68627d" />

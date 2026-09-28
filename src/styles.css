@@ -987,9 +987,11 @@ input[type="range"]::-moz-range-thumb {
   position: absolute;
   left: 0;
   top: 0;
-  transform-origin: 36% 94%;
+  /* Drehpunkt in SVG-Koordinaten: Mitte der Kettenauflage bei (64, 116.5). */
+  transform-origin: 35.5556% 93.9516%;
   width: 154px;
-  height: 107px;
+  height: auto;
+  aspect-ratio: 180 / 124;
   z-index: 3;
   pointer-events: none;
   opacity: 0;
@@ -1000,6 +1002,7 @@ input[type="range"]::-moz-range-thumb {
   opacity: 1;
 }
 .excavator svg {
+  display: block;
   width: 100%;
   height: 100%;
   overflow: visible;
@@ -1022,8 +1025,11 @@ input[type="range"]::-moz-range-thumb {
   animation: excavator-rumble 0.36s ease-in-out infinite alternate;
   transform-origin: 65px 100px;
 }
-.excavator[data-active="true"] .excavator-wheel {
-  animation: excavator-roll 0.7s linear infinite;
+.excavator-drive {
+  transform: rotate(var(--drive-angle, 0rad));
+}
+.excavator-roller {
+  transform: rotate(var(--roller-angle, 0rad));
 }
 /* Drehpunkte beziehen sich auf die SVG-Koordinaten der jeweiligen Gelenke. */
 .excavator-arm {
@@ -1066,12 +1072,7 @@ input[type="range"]::-moz-range-thumb {
 /* Lokale Detailbewegungen laufen nur während einer aktiven Baggerfahrt. */
 @keyframes excavator-rumble {
   to {
-    transform: translateY(-1px) rotate(-0.6deg);
-  }
-}
-@keyframes excavator-roll {
-  to {
-    transform: rotate(360deg);
+    transform: translateY(-0.6px) rotate(-0.3deg);
   }
 }
 @keyframes excavator-dig {
@@ -1108,7 +1109,6 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 599px) {
   .excavator {
     width: 116px;
-    height: 80px;
   }
   .excavator-caption {
     bottom: 86px;
