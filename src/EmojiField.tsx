@@ -44,7 +44,18 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       height = host.clientHeight;
     let searchBottom = 380;
     // Nur abgeholte Überschüsse werden zum Ziel geführt; danach übernimmt wieder die Schwerkraft.
-    const grading = new Map<number, Matter.Vector>();
+    const grading = new Map<
+      number,
+      {
+        from: Matter.Vector;
+        to: Matter.Vector;
+        angle: number;
+        turn: number;
+        started: number;
+        duration: number;
+        lift: number;
+      }
+    >();
     // Aus der Trefferliste entfernte Emojis lösen zeitversetzt eine Baggerfahrt aus.
     let previousSelected = new Set<string>();
     let cleanupDue: number | null = null;
@@ -239,7 +250,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
         .map((_, i) => i)
         .filter((i) => !selectedIds.has(EMOJIS[i].id));
       if (!reduced && !sweep && cleanupDue !== null && elapsed >= cleanupDue) {
-        const targets = roughTargets(resting);
+        const targets = roughTargets(resting.filter((i) => !grading.has(i)));
         sweep = {
           started: elapsed,
           duration: Math.max(4200, Math.min(6800, width * 5)),
@@ -323,9 +334,49 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
           body.collisionFilter.mask = 0;
           Matter.Body.setPosition(body, reducedTarget);
           Matter.Body.setAngle(body, Math.sin(i * 7) * 0.3);
-        } else if (sweepTarget && pickupX !== undefined && bucketX >= pickupX) {
-          // Erst wenn die Schaufel die ursprüngliche Position erreicht, übernimmt sie den Körper.
-          grading.set(i, sweepTarget);
+        } else if (
+          sweepTarget &&
+          pickupX !== undefined &&
+          bucketX >= pickupX &&
+          !grading.has(i)
+        ) {
+          // Die Bahn nur einmal bei Schaufelkontakt planen, nicht in jedem Frame neu starten.
+          const radius = body.circleRadius || 17;
+          const to = { ...sweepTarget };
+          // Oberhalb der vorhandenen Unterlage absetzen, statt in den Haufen einzutauchen.
+          resting.forEach((j) => {
+            if (j === i) return;
+            const other = bodies[j];
+            const reserved = grading.get(j)?.to;
+            if (
+              !reserved &&
+              (sweep?.targets.has(j) || Math.abs(other.velocity.y) > 2)
+            )
+              return;
+            const support = reserved ?? other.position;
+            const gap = radius + (other.circleRadius || 17) + 2;
+            const dx = Math.abs(to.x - support.x);
+            if (dx < gap && support.y > height - reserve)
+              to.y = Math.min(to.y, support.y - Math.sqrt(gap * gap - dx * dx));
+          });
+          const distance = Math.hypot(
+            to.x - body.position.x,
+            to.y - body.position.y,
+          );
+          const desiredAngle = Math.sin(i * 7) * 0.35;
+          grading.set(i, {
+            from: { ...body.position },
+            to,
+            angle: body.angle,
+            // Auch nach mehreren Umdrehungen immer den kurzen Drehweg verwenden.
+            turn: Math.atan2(
+              Math.sin(desiredAngle - body.angle),
+              Math.cos(desiredAngle - body.angle),
+            ),
+            started: elapsed,
+            duration: 650 + distance * 3,
+            lift: Math.min(radius * 0.7, distance * 0.08),
+          });
           if (!body.isStatic) Matter.Body.setStatic(body, true);
           body.collisionFilter.mask = 0;
         } else if (body.isStatic && !grading.has(i)) {
@@ -335,31 +386,42 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
           Matter.Sleeping.set(body, false);
           Matter.Body.setVelocity(body, { x: ((i % 5) - 2) * 0.4, y: 0 });
         }
-        const floorTarget = grading.get(i);
-        if (floorTarget && selectedIndex === undefined) {
-          const ease = 1 - Math.exp(-delta / 150);
-          Matter.Body.setPosition(body, {
-            x: body.position.x + (floorTarget.x - body.position.x) * ease,
-            y: body.position.y + (floorTarget.y - body.position.y) * ease,
-          });
-          Matter.Body.setAngle(
-            body,
-            body.angle + (Math.sin(i * 7) * 0.35 - body.angle) * ease,
+        const motion = grading.get(i);
+        if (motion && selectedIndex === undefined) {
+          const progress = Math.min(
+            1,
+            (elapsed - motion.started) / motion.duration,
           );
-          // Ab weniger als einem Pixel Restweg übernimmt die Physik das natürliche Nachrutschen.
-          if (
-            Math.hypot(
-              floorTarget.x - body.position.x,
-              floorTarget.y - body.position.y,
-            ) < 1
-          ) {
+          // S-Kurve: Geschwindigkeit und Beschleunigung starten und enden bei null.
+          const ease = progress ** 3 * (10 + progress * (-15 + 6 * progress));
+          const arc = 16 * progress ** 2 * (1 - progress) ** 2;
+          const previousPosition = { ...body.position };
+          const previousAngle = body.angle;
+          Matter.Body.setPosition(body, {
+            x: motion.from.x + (motion.to.x - motion.from.x) * ease,
+            y:
+              motion.from.y +
+              (motion.to.y - motion.from.y) * ease -
+              motion.lift * arc,
+          });
+          Matter.Body.setAngle(body, motion.angle + motion.turn * ease);
+          // Kurz vor dem Stillstand mit dem letzten Bewegungsimpuls an die Physik übergeben.
+          if (progress >= 0.94) {
             grading.delete(i);
             sweep?.targets.delete(i);
             Matter.Body.setStatic(body, false);
             body.collisionFilter.mask = 0xffffffff;
             Matter.Sleeping.set(body, false);
-            Matter.Body.setVelocity(body, { x: 0, y: 0 });
-            Matter.Body.setAngularVelocity(body, 0);
+            // Matter erwartet Geschwindigkeiten pro 60-Hz-Schritt, unabhängig von der Bildrate.
+            const velocityScale = 1000 / 60 / delta;
+            Matter.Body.setVelocity(body, {
+              x: (body.position.x - previousPosition.x) * velocityScale,
+              y: (body.position.y - previousPosition.y) * velocityScale,
+            });
+            Matter.Body.setAngularVelocity(
+              body,
+              (body.angle - previousAngle) * velocityScale,
+            );
           }
         }
         const el = elements.current.get(id);
