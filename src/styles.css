@@ -50,9 +50,9 @@ a {
   color: inherit;
   text-decoration: none;
 }
-/* Die App ist insgesamt 120 px kompakter; Kopf/Fuß sparen 20 px, das Feld 100 px. */
+/* Die App füllt mindestens das Fenster; das Spielfeld nimmt den freien Platz ein. */
 .app-shell {
-  min-height: calc(100dvh - 120px);
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -138,7 +138,6 @@ a {
   flex: 1;
   position: relative;
   min-height: max(600px, var(--emoji-field-min-height, 0px));
-  height: calc(100dvh - 232px);
   isolation: isolate;
   overflow: hidden;
   background: radial-gradient(ellipse at 42% 29%, #f9f9fc 0, white 57%);
@@ -635,7 +634,8 @@ input[type="range"]::-moz-range-thumb {
   color: #c1bbd7;
 }
 .footer {
-  position: relative;
+  position: sticky;
+  bottom: 0;
   z-index: 5;
   min-height: 42px;
   flex-shrink: 0;
@@ -878,7 +878,6 @@ input[type="range"]::-moz-range-thumb {
   }
   .playground {
     min-height: max(690px, var(--emoji-field-min-height, 0px));
-    height: calc(100dvh - 214px);
   }
   .search-zone {
     top: 136px;
