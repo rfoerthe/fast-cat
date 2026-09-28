@@ -264,7 +264,10 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
         resting.length / Math.max(1, Math.floor((width - 40) / floorSpacing)),
       );
       // Unter dem Trefferraster Raum für einen unebenen Haufen und den Bagger reservieren.
-      const reserve = Math.max(150, floorRows * floorSpacing + 130);
+      const reserve = Math.max(
+        width < 960 ? 90 : 110,
+        floorRows * floorSpacing + (width < 960 ? 70 : 90),
+      );
       const playground = host.parentElement;
       // CSS nutzt diese Werte als Mindesthöhe und als Abstand für den Feldhinweis.
       playground?.style.setProperty(

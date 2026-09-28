@@ -50,13 +50,15 @@ a {
   color: inherit;
   text-decoration: none;
 }
+/* Die App ist insgesamt 120 px kompakter; Kopf/Fuß sparen 20 px, das Feld 100 px. */
 .app-shell {
-  min-height: 100dvh;
+  min-height: calc(100dvh - 120px);
   display: flex;
   flex-direction: column;
 }
 .header {
-  height: 82px;
+  height: 70px;
+  flex-shrink: 0;
   padding: 0 42px;
   display: flex;
   align-items: center;
@@ -135,15 +137,15 @@ a {
 .playground {
   flex: 1;
   position: relative;
-  min-height: max(700px, var(--emoji-field-min-height, 0px));
-  height: calc(100dvh - 132px);
+  min-height: max(600px, var(--emoji-field-min-height, 0px));
+  height: calc(100dvh - 232px);
   isolation: isolate;
   overflow: hidden;
   background: radial-gradient(ellipse at 42% 29%, #f9f9fc 0, white 57%);
 }
 .search-zone {
   position: absolute;
-  top: 125px;
+  top: 65px;
   left: 0;
   width: calc(100% - 360px);
   text-align: center;
@@ -343,7 +345,7 @@ h1 span {
 }
 .inspector {
   position: absolute;
-  top: 45px;
+  top: 25px;
   right: 34px;
   width: 286px;
   border: 1px solid #eaeaf0;
@@ -359,7 +361,7 @@ h1 span {
   justify-content: space-between;
   font-size: 14px;
   font-weight: 550;
-  margin-bottom: 25px;
+  margin-bottom: 17px;
 }
 .inspector-heading > span:first-child {
   display: flex;
@@ -439,7 +441,7 @@ input[type="range"]::-moz-range-thumb {
 .inspector-rule {
   height: 1px;
   background: #f0f0f4;
-  margin: 22px 0 17px;
+  margin: 16px 0 13px;
 }
 .ranking-heading {
   display: flex;
@@ -506,7 +508,7 @@ input[type="range"]::-moz-range-thumb {
   color: #b1b0bc;
 }
 .ranking-empty {
-  height: 215px;
+  height: 175px;
   display: flex;
   align-items: center;
   flex-direction: column;
@@ -635,7 +637,8 @@ input[type="range"]::-moz-range-thumb {
 .footer {
   position: relative;
   z-index: 5;
-  min-height: 50px;
+  min-height: 42px;
+  flex-shrink: 0;
   border-top: 1px solid #eeeef3;
   background: #fcfcfd;
   padding: 0 42px;
@@ -756,10 +759,10 @@ input[type="range"]::-moz-range-thumb {
 /* Hohe Viewports geben Suche und Spielfeld zusätzliche vertikale Fläche. */
 @media (min-height: 900px) {
   .search-zone {
-    top: 155px;
+    top: 95px;
   }
   .playground {
-    min-height: max(760px, var(--emoji-field-min-height, 0px));
+    min-height: max(660px, var(--emoji-field-min-height, 0px));
   }
 }
 /* Abstände für kleinere Desktopansichten verdichten. */
@@ -789,7 +792,7 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 959px) {
   .search-zone {
     width: 100%;
-    top: 130px;
+    top: 90px;
     max-width: 620px;
     left: 50%;
     transform: translateX(-50%);
@@ -852,7 +855,7 @@ input[type="range"]::-moz-range-thumb {
 /* Smartphone-Layout; die 600-px-Grenze wird auch für Emoji- und Baggergrößen verwendet. */
 @media (max-width: 599px) {
   .header {
-    height: 68px;
+    height: 56px;
     padding: 0 20px;
     gap: 14px;
   }
@@ -874,11 +877,11 @@ input[type="range"]::-moz-range-thumb {
     font-size: 13px;
   }
   .playground {
-    min-height: max(790px, var(--emoji-field-min-height, 0px));
-    height: calc(100dvh - 114px);
+    min-height: max(690px, var(--emoji-field-min-height, 0px));
+    height: calc(100dvh - 214px);
   }
   .search-zone {
-    top: 176px;
+    top: 136px;
     padding: 0 23px;
   }
   .eyebrow {
@@ -935,9 +938,9 @@ input[type="range"]::-moz-range-thumb {
     font-size: 28px;
   }
   .footer {
-    padding: 13px 20px;
+    padding: 9px 20px;
     font-size: 12px;
-    min-height: 46px;
+    min-height: 38px;
     gap: 8px;
     flex-wrap: wrap;
   }
