@@ -1,6 +1,8 @@
 # fast cat — Emoji Playground
 
-**fast cat** ist ein interaktiver Emoji-Playground: Beschreibe eine Idee, Kategorie oder Tätigkeit, und die Anwendung findet passende Emojis aus einem Katalog mit 180 Symbolen. Das Modell Jev bewertet über OpenRouter, wie gut jedes Emoji zu deiner Eingabe passt.
+**fast cat** ist ein interaktiver Emoji-Playground: Beschreibe eine Idee, Kategorie oder Tätigkeit, und die Anwendung findet passende Emojis aus zwei Sets mit jeweils 180 Symbolen. Das Modell Jev bewertet über OpenRouter, wie gut jedes Emoji zu deiner Eingabe passt.
+
+Mit dem Schieberegler **Emoji-Set** wechselst du zwischen **Dinge & Natur** und **Smileys & Gesten**. Das zweite Set enthält Gesichter, Handzeichen und Menschen mit Gesten. Die Suche bleibt beim Wechsel erhalten und bewertet das neu gewählte Set; auch die Suchvorschläge passen sich an.
 
 Passende Emojis steigen nach oben, die übrigen fallen auf den Boden. Mit der Treffer-Schwelle bestimmst du, wie genau die Ergebnisse passen sollen. Du kannst die Wahrscheinlichkeiten ansehen, einzelne Emojis anklicken und passende Treffer kopieren. Fallen Emojis zurück, fährt ein animierter Bagger über den Haufen und ebnet hohe Stellen grob ein; Emojis ohne Unterlage fallen weiter nach unten.
 
@@ -37,13 +39,13 @@ Die gemeinsame Konfiguration liegt in `biome.json`. Biome berücksichtigt `.giti
 ## Verhalten
 
 - Beliebiger Text, automatische Auswertung nach 280 ms Tipp-Pause.
-- Pro Text eine Anfrage mit 180 unabhängigen `noul`-Fragen an **OpenRouters Decisions API**; kein Chat-Completions-Endpunkt und keine simulierten Ergebnisse.
+- Pro Text und ausgewähltem Set eine Anfrage mit 180 unabhängigen `noul`-Fragen an **OpenRouters Decisions API**; kein Chat-Completions-Endpunkt und keine simulierten Ergebnisse.
 - Modell standardmäßig `typesafe/jev-1.13`.
 - Alle Antworten werden auf Vollständigkeit und gültige Wahrscheinlichkeiten geprüft.
 - Emojis mit `P(passend) >= Schwelle` steigen auf, der Rest fällt mit Matter.js auf den Boden. Standard: 60 %.
 - Rechts: zehn höchste Wahrscheinlichkeiten. Auf schmalen Geräten: kompakter Regler; einzelne Wahrscheinlichkeiten über anklickbare Emojis.
-- Schwellenänderungen benötigen keine Anfrage; die letzten 30 Texte werden im Arbeitsspeicher des Browser-Tabs zwischengespeichert.
-- Alte Anfragen werden bei Änderungen abgebrochen. Veraltete Ergebnisse erscheinen nie als Ergebnis eines neuen Textes. Bereits von OpenRouter verarbeitete Anfragen können trotzdem Kosten verursachen.
+- Schwellenänderungen benötigen keine Anfrage; die letzten 30 Kombinationen aus Text und Set werden im Arbeitsspeicher des Browser-Tabs zwischengespeichert.
+- Alte Anfragen werden bei Text- oder Set-Wechsel abgebrochen. Veraltete Ergebnisse erscheinen nie als Ergebnis eines neuen Textes oder eines anderen Sets. Bereits von OpenRouter verarbeitete Anfragen können trotzdem Kosten verursachen.
 - 25 Sekunden Timeout, maximal drei aktive Aufrufe, Anfragevalidierung und verständliche Fehlerzustände für fehlenden Key, Guthaben und Ratenlimits.
 - Laufzeit und Kosten stammen aus echten Aufrufen. Die Laufzeit umfasst den serverseitigen API-Roundtrip, nicht die Tipp-Pause. Kosten werden nur angezeigt, wenn OpenRouter sie liefert.
 - `prefers-reduced-motion` ersetzt die Physikanimation durch eine statische Anordnung.
@@ -53,7 +55,7 @@ Die gemeinsame Konfiguration liegt in `biome.json`. Biome berücksichtigt `.giti
 - `src/App.tsx`: Oberfläche, Schwelle, Trefferliste, Kopieren und Hilfe.
 - `src/EmojiField.tsx`: Physik und Positionierung der 180 Emojis.
 - `src/useClassification.ts`: Debounce, Abbruch, Cache und Fehlerbehandlung.
-- `shared/emojis.ts`: gemeinsamer Katalog und Datentypen.
+- `shared/emojis.ts`: beide Kataloge und gemeinsame Datentypen.
 - `server/index.ts`: lokaler Express-Server, API und Vite/Produktionsauslieferung.
 - `server/classify.ts`: OpenRouter-Anbindung und Validierung.
 - `server/classify.test.ts`: Eingabe-/Antwortvalidierung, Header, Batch-Request und Fehlerfälle.
@@ -99,7 +101,7 @@ X-Title: fast cat - Emoji Playground
 }
 ```
 
-`Object.fromEntries(EMOJIS.map(...))` erzeugt das `questions`-Objekt mit einem Eintrag pro Emoji. `model` kommt aus `OPENROUTER_MODEL` oder verwendet den Standardwert `typesafe/jev-1.13`. `signal` steuert den lokalen Abbruch von `fetch` und wird nicht mitgesendet.
+`Object.fromEntries(EMOJI_SETS[setId].emojis.map(...))` erzeugt das `questions`-Objekt mit einem Eintrag pro Emoji. `model` kommt aus `OPENROUTER_MODEL` oder verwendet den Standardwert `typesafe/jev-1.13`. `signal` steuert den lokalen Abbruch von `fetch` und wird nicht mitgesendet.
 
 ## Lizenz
 

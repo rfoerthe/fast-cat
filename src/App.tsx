@@ -14,7 +14,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { EMOJIS, EXAMPLES } from '../shared/emojis';
+import { EMOJI_SETS, EXAMPLES, type EmojiSetId } from '../shared/emojis';
 import { useClassification } from './useClassification';
 import EmojiField from './EmojiField';
 /**
@@ -24,6 +24,26 @@ import EmojiField from './EmojiField';
 export default function App() {
   // Such- und Auswahlzustand steuern Feld, Rangliste und Detailanzeige gemeinsam.
   const [query, setQuery] = useState('');
+  const [setId, setSetId] = useState<EmojiSetId>('things');
+  const { emojis, label: setLabel } = EMOJI_SETS[setId];
+  const examples =
+    setId === 'things'
+      ? EXAMPLES.map((query, i) => ({
+          query,
+          symbol: ['🍕', '🥑', '🍩', '🎸'][i],
+          label: [
+            'Essen',
+            'Gesund essen',
+            'Ungesund essen',
+            'Eine Band gründen',
+          ][i],
+        }))
+      : [
+          { query: 'Freude und gute Laune', symbol: '😄', label: 'Gute Laune' },
+          { query: 'Liebe und Zuneigung', symbol: '🥰', label: 'Liebe' },
+          { query: 'Trauer und Enttäuschung', symbol: '😢', label: 'Traurig' },
+          { query: 'Zustimmung ausdrücken', symbol: '👍', label: 'Zustimmung' },
+        ];
   const [threshold, setThreshold] = useState(60);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Kurzlebige UI-Rückmeldungen für Hilfe und Zwischenablage.
@@ -34,7 +54,7 @@ export default function App() {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const helpDialog = useRef<HTMLDialogElement>(null);
-  const { result, pending, error, retry } = useClassification(query);
+  const { result, pending, error, retry } = useClassification(query, setId);
   // Den Konfigurationsstatus einmal laden und den Aufruf beim Unmount abbrechen.
   useEffect(() => {
     const controller = new AbortController();
@@ -57,13 +77,13 @@ export default function App() {
   }, [help]);
   // Eine Kopie sortieren, damit die gemeinsame Katalogreihenfolge unverändert bleibt.
   const ranked = result
-    ? [...EMOJIS].sort((a, b) => result.scores[b.id] - result.scores[a.id])
+    ? [...emojis].sort((a, b) => result.scores[b.id] - result.scores[a.id])
     : [];
   // Der Regler verwendet Prozent, die API dagegen Wahrscheinlichkeiten zwischen 0 und 1.
   const matches = result
     ? ranked.filter((emoji) => result.scores[emoji.id] >= threshold / 100)
     : [];
-  const selected = EMOJIS.find((emoji) => emoji.id === selectedId);
+  const selected = emojis.find((emoji) => emoji.id === selectedId);
   /** Übernimmt Texteingaben oder Beispiele, löscht alte UI-Rückmeldungen und fokussiert die Suche. */
   const choose = (value: string) => {
     setQuery(value);
@@ -122,6 +142,8 @@ export default function App() {
       </header>
       <main className="playground">
         <EmojiField
+          key={setId}
+          emojis={emojis}
           scores={result?.scores ?? null}
           threshold={threshold}
           onSelect={setSelectedId}
@@ -136,6 +158,37 @@ export default function App() {
           <p className="intro">
             Beschreibe, was du suchst. Jev findet die passenden Emojis.
           </p>
+          <div className="set-picker">
+            <label htmlFor="emoji-set">Emoji-Set</label>
+            <div className="set-slider">
+              <span className={setId === 'things' ? 'active' : ''}>
+                Dinge &amp; Natur
+              </span>
+              <input
+                id="emoji-set"
+                type="range"
+                min="0"
+                max="1"
+                step="1"
+                value={setId === 'things' ? 0 : 1}
+                aria-valuetext={setLabel}
+                onChange={(event) => {
+                  setSetId(event.target.value === '0' ? 'things' : 'people');
+                  setSelectedId(null);
+                  setCopied(false);
+                  setCopyError('');
+                }}
+                style={
+                  {
+                    '--range-fill': setId === 'things' ? '0%' : '100%',
+                  } as React.CSSProperties
+                }
+              />
+              <span className={setId === 'people' ? 'active' : ''}>
+                Smileys &amp; Gesten
+              </span>
+            </div>
+          </div>
           <div className={`search-box ${pending ? 'is-loading' : ''}`}>
             <Search size={20} aria-hidden="true" />
             <input
@@ -172,24 +225,15 @@ export default function App() {
           </div>
           <div className="examples">
             <span>Zum Beispiel</span>
-            {EXAMPLES.map((text, i) => (
+            {examples.map((example) => (
               <button
                 type="button"
-                key={text}
-                className={query === text ? 'active' : ''}
-                onClick={() => choose(text)}
+                key={example.query}
+                className={query === example.query ? 'active' : ''}
+                onClick={() => choose(example.query)}
               >
-                {['🍕', '🥑', '🍩', '🎸'][i]}{' '}
-                <span className="example-label">
-                  {
-                    [
-                      'Essen',
-                      'Gesund essen',
-                      'Ungesund essen',
-                      'Eine Band gründen',
-                    ][i]
-                  }
-                </span>
+                {example.symbol}{' '}
+                <span className="example-label">{example.label}</span>
               </button>
             ))}
           </div>
@@ -202,7 +246,7 @@ export default function App() {
                 </button>
               </div>
             ) : pending ? (
-              <span>Jev bewertet 180 Emojis …</span>
+              <span>Jev bewertet {emojis.length} Emojis …</span>
             ) : result ? (
               <span className="result-summary">
                 <i />
@@ -220,7 +264,7 @@ export default function App() {
                 </button>
               </span>
             ) : (
-              <span>180 Emojis warten auf deine Idee.</span>
+              <span>{emojis.length} Emojis warten auf deine Idee.</span>
             )}
           </div>
           {copyError ? (
@@ -321,8 +365,8 @@ export default function App() {
             <Zap size={12} />
             <span>
               {result
-                ? `${matches.length} von 180 passen`
-                : '180 unabhängige Entscheidungen'}
+                ? `${matches.length} von ${emojis.length} passen`
+                : `${emojis.length} unabhängige Entscheidungen`}
             </span>
           </div>
         </aside>
@@ -357,7 +401,7 @@ export default function App() {
       <footer className="footer">
         <span>
           <span className="footer-dot" />
-          {EMOJIS.length} Emojis <span className="footer-separator">/</span>{' '}
+          {emojis.length} Emojis <span className="footer-separator">/</span>{' '}
           unendlich viele Ideen
         </span>
         <div>
@@ -399,7 +443,9 @@ export default function App() {
         <h2>Einfach mal denken lassen.</h2>
         <p>
           Schreibe eine Kategorie oder eine Idee in das Suchfeld. Jev
-          entscheidet für jedes der 180 Emojis, wie gut es dazu passt.
+          entscheidet für jedes der 180 Emojis im aktiven Set, wie gut es dazu
+          passt. Mit dem Schieberegler „Emoji-Set“ wechselst du zwischen Dinge
+          &amp; Natur und Smileys &amp; Gesten.
         </p>
         <p>
           Ab der eingestellten Schwelle steigen Emojis nach oben. Die anderen
@@ -407,9 +453,9 @@ export default function App() {
           die Auswahl verändert.
         </p>
         <p>
-          Mit dem Regler kannst du die vorhandenen Ergebnisse sofort neu
-          filtern. Klicke auf ein Emoji, um seine genaue Wahrscheinlichkeit zu
-          sehen.
+          Mit der Treffer-Schwelle kannst du die vorhandenen Ergebnisse sofort
+          neu filtern. Klicke auf ein Emoji, um seine genaue Wahrscheinlichkeit
+          zu sehen.
         </p>
         <div className="help-note">
           Deine Eingabe wird nach einer kurzen Tipp-Pause über den lokalen

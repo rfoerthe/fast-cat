@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import Matter from 'matter-js';
-import { EMOJIS } from '../shared/emojis';
+import type { Emoji } from '../shared/emojis';
 import Excavator, { trackLinkTransform } from './Excavator';
 
 /** Eingaben des Felds; Wahrscheinlichkeiten und Prozentwerte verwenden unterschiedliche Skalen. */
 type Props = {
+  emojis: Emoji[];
   /** Bewertungen nach Katalog-ID im Bereich [0, 1]; null zeigt den Zustand ohne Ergebnis. */
   scores: Record<string, number> | null;
   /** Inklusive Treffergrenze in Prozent. */
@@ -17,7 +18,12 @@ type Props = {
  * React verwaltet die bedienbaren Buttons; der Animationsloop aktualisiert ihre DOM-Positionen.
  * Bei reduzierter Bewegung werden feste Positionen ohne Physikschritte verwendet.
  */
-export default function EmojiField({ scores, threshold, onSelect }: Props) {
+export default function EmojiField({
+  emojis,
+  scores,
+  threshold,
+  onSelect,
+}: Props) {
   const container = useRef<HTMLElement>(null);
   const excavator = useRef<HTMLDivElement>(null);
   // DOM-Referenzen erlauben Positionsupdates pro Frame ohne zusätzliche React-Renderings.
@@ -106,7 +112,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
     const engine = Matter.Engine.create({ enableSleeping: false });
     engine.gravity.y = 1.3;
     // Die Array-Indizes entsprechen dem Katalog und bleiben während dieser Physikwelt stabil.
-    const bodies = EMOJIS.map((_, i) =>
+    const bodies = emojis.map((_, i) =>
       Matter.Bodies.circle(
         24 + ((i * 67) % Math.max(1, width - 48)),
         height - 260 - Math.floor(i / 20) * 34,
@@ -203,7 +209,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       previousMachineX = null;
       if (excavator.current) excavator.current.dataset.active = 'false';
       bodies.forEach((body, i) => {
-        if (!previousSelected.has(EMOJIS[i].id)) {
+        if (!previousSelected.has(emojis[i].id)) {
           Matter.Body.setStatic(body, false);
           body.collisionFilter.mask = 0xffffffff;
         }
@@ -236,9 +242,9 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       elapsed += delta;
       const { scores: current, threshold: limit } = latest.current;
       const selected = current
-        ? EMOJIS.filter((emoji) => current[emoji.id] >= limit / 100).sort(
-            (a, b) => current[b.id] - current[a.id],
-          )
+        ? emojis
+            .filter((emoji) => current[emoji.id] >= limit / 100)
+            .sort((a, b) => current[b.id] - current[a.id])
         : [];
       const indices = new Map(selected.map((emoji, i) => [emoji.id, i]));
       const selectedIds = new Set(indices.keys());
@@ -248,7 +254,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       previousSelected = selectedIds;
       const resting = bodies
         .map((_, i) => i)
-        .filter((i) => !selectedIds.has(EMOJIS[i].id));
+        .filter((i) => !selectedIds.has(emojis[i].id));
       if (!reduced && !sweep && cleanupDue !== null && elapsed >= cleanupDue) {
         const targets = roughTargets(resting.filter((i) => !grading.has(i)));
         sweep = {
@@ -303,7 +309,7 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       );
       if (!reduced) Matter.Engine.update(engine, delta);
       bodies.forEach((body, i) => {
-        const id = EMOJIS[i].id;
+        const id = emojis[i].id;
         const selectedIndex = indices.get(id);
         const reducedTarget = reducedTargets?.get(i);
         const sweepTarget = sweep?.targets.get(i);
@@ -538,16 +544,16 @@ export default function EmojiField({ scores, threshold, onSelect }: Props) {
       host.parentElement?.style.removeProperty('--emoji-field-min-height');
       host.parentElement?.style.removeProperty('--emoji-floor-height');
     };
-  }, [reduced]);
+  }, [reduced, emojis]);
   return (
     <section
       className="emoji-field"
       ref={container}
-      aria-label="180 Emojis – passende steigen auf, übrige fallen nach unten"
+      aria-label={`${emojis.length} Emojis – passende steigen auf, übrige fallen nach unten`}
     >
       <Excavator ref={excavator} />
       {/* Die Ref-Map folgt Mount und Unmount der Buttons; Labels bleiben über React aktuell. */}
-      {EMOJIS.map((emoji) => {
+      {emojis.map((emoji) => {
         const score = scores?.[emoji.id];
         const selected = score !== undefined && score >= threshold / 100;
         return (
