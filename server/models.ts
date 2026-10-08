@@ -371,9 +371,12 @@ export class ModelRegistry {
   }
 
   async resolve(id: unknown): Promise<DecisionModel> {
-    await this.refresh();
     if (id !== undefined && typeof id !== 'string')
       throw new ApiError(400, 'Ungültige Modellauswahl.');
+    // Nach der ersten Ermittlung blockieren Statusprüfungen keine Klassifizierung mehr.
+    // Tatsächliche Runner-/Verbindungsfehler werden weiterhin vom API-Handler erfasst.
+    if (this.lastRefresh === 0) await this.refresh();
+    else void this.refresh().catch(() => {});
     const model = this.catalog.models.find(
       (model) => model.id === (id ?? this.catalog.selectedId),
     );

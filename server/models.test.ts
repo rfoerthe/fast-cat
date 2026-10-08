@@ -260,3 +260,60 @@ test('a failed settings write is reported and rolls back manual selection', asyn
     );
     assert.equal(registry.snapshot().selectedId, first.selectedId);
   }));
+
+test('classification uses the checked catalog while a remote status check is pending', async () =>
+  setup(async (file) => {
+    let block = false;
+    let release = () => {};
+    let notifyStarted = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    const fake = fakeApi();
+    const registry = new ModelRegistry(file, async (url, init) => {
+      if (block && String(url).endsWith('/api/v1/key')) {
+        notifyStarted();
+        await gate;
+      }
+      return fake(url, init);
+    });
+    await registry.refresh();
+    block = true;
+    const refresh = registry.refresh(true);
+    await started;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const selected = await Promise.race([
+        registry.resolve('ollama:clef-flash:latest'),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error('classification waited for remote health check'),
+              ),
+            1000,
+          );
+        }),
+      ]);
+      assert.equal(selected.id, 'ollama:clef-flash:latest');
+      await assert.rejects(registry.resolve('ollama:unknown'), ApiError);
+    } finally {
+      clearTimeout(timer);
+      release();
+      await refresh;
+    }
+    await registry.unavailable(
+      'ollama:clef-flash:latest',
+      'Runner ausgefallen',
+    );
+    await assert.rejects(
+      registry.resolve('ollama:clef-flash:latest'),
+      (error: unknown) =>
+        error instanceof ApiError &&
+        error.status === 409 &&
+        /Runner/.test(error.message),
+    );
+  }));

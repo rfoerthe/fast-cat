@@ -50,8 +50,10 @@ Die gemeinsame Konfiguration liegt in `biome.json`. Biome berücksichtigt `.giti
 ## Verhalten
 
 - Beliebiger Text, automatische Auswertung nach 280 ms Tipp-Pause.
-- Pro Text, Modell und ausgewähltem Set 180 unabhängige `noul`-Bewertungen: über **OpenRouters Decisions API** in einer Anfrage, über **Ollamas `/v1/systemone`** in drei sequenziellen Teilanfragen mit 64, 64 und 52 Fragen. Ollama erlaubt maximal 64 Fragen pro Aufruf. Erst vollständige Antworten erscheinen in der Oberfläche.
+- Pro Text, Modell und ausgewähltem Set 180 unabhängige `noul`-Bewertungen: über **OpenRouters Decisions API** in einer Anfrage, über **Ollamas `/v1/systemone`** in sequenziellen Teilanfragen mit höchstens 64 Fragen (normalerweise 64, 64 und 52). Bei expliziten Kontext- oder Anfragegrößenfehlern wird die betroffene Teilanfrage verkleinert und erneut gesendet; die kleinere Größe wird pro Ollama-Adresse und Modell bis zum Serverneustart gemerkt. Erst vollständige Antworten erscheinen in der Oberfläche.
 - OpenRouter-Modell standardmäßig `typesafe/jev-1.13`; lokale Modelle werden nach Modellnamen sortiert vor Jev angezeigt. Ohne gespeicherte Auswahl wird der erste verfügbare Eintrag genutzt.
+- Kürzere Instruktionen und Kriterien für Ollama reduzieren die wiederholten Eingabetokens; Emoji, Bezeichnung, direkte Nützlichkeit, Einschränkungen und Verneinungen bleiben Bestandteil der Bewertung. Jev verwendet weiterhin die bisherigen Instruktionen.
+- Nach der ersten Modellerkennung laufen Verfügbarkeitsprüfungen im Hintergrund, sodass eine langsame OpenRouter-Statusprüfung lokale Suchanfragen nicht aufhält.
 - Alle Antworten werden auf Vollständigkeit und gültige Wahrscheinlichkeiten geprüft.
 - Emojis mit `P(passend) >= Schwelle` steigen auf, der Rest fällt mit Matter.js auf den Boden. Standard: 60 %.
 - Rechts: zehn höchste Wahrscheinlichkeiten. Auf schmalen Geräten: kompakter Regler; einzelne Wahrscheinlichkeiten über anklickbare Emojis.

@@ -271,3 +271,165 @@ test('Ollama rejects partial batches and marks runner failures as unavailable', 
       !error.message.includes('private'),
   );
 });
+
+test('context overflow shrinks batches, preserves all scores and remembers the size per model', async () => {
+  const selection = {
+    id: 'ollama:small-context',
+    provider: 'ollama' as const,
+    model: 'small-context',
+  };
+  let tokensPerQuestion = 200;
+  let failures = 0;
+  let requestedSizes: number[] = [];
+  let successfulIds: string[] = [];
+  const fetcher: typeof fetch = async (_url, init) => {
+    const { questions } = JSON.parse(String(init?.body));
+    const ids = Object.keys(questions);
+    requestedSizes.push(ids.length);
+    const tokens = ids.length * tokensPerQuestion + 100;
+    if (tokens > 2050) {
+      failures++;
+      return Response.json(
+        {
+          error: `prompt 0 has ${tokens} tokens; expected 1–2050 (input is never truncated)`,
+        },
+        { status: 400 },
+      );
+    }
+    successfulIds.push(...ids);
+    return Response.json({
+      answers: Object.fromEntries(
+        ids.map((id) => [id, { type: 'noul', noul: 0.75 }]),
+      ),
+    });
+  };
+  const run = () =>
+    classify(
+      'Obst, aber keine Äpfel',
+      new AbortController().signal,
+      fetcher,
+      'things',
+      selection,
+    );
+  const expectedIds = EMOJIS.map(({ id }) => id);
+  const first = await run();
+  assert.equal(failures, 1);
+  assert.equal(requestedSizes[0], 64);
+  const learnedSize = requestedSizes[1];
+  assert.ok(learnedSize < 64);
+  assert.deepEqual(successfulIds, expectedIds);
+  assert.equal(Object.keys(first.scores).length, 180);
+  requestedSizes = [];
+  successfulIds = [];
+  await run();
+  assert.equal(requestedSizes[0], learnedSize);
+  assert.equal(failures, 1);
+  assert.deepEqual(successfulIds, expectedIds);
+  // Ein längerer Suchtext kann trotz gelernter Größe eine weitere Reduzierung erfordern.
+  tokensPerQuestion = 400;
+  requestedSizes = [];
+  successfulIds = [];
+  await run();
+  assert.equal(failures, 2);
+  assert.ok(requestedSizes[1] < learnedSize);
+  assert.deepEqual(successfulIds, expectedIds);
+});
+
+test('HTTP 413 retries smaller batches without dropping any emoji', async () => {
+  const successfulIds: string[] = [];
+  const sizes: number[] = [];
+  const result = await classify(
+    'Test',
+    new AbortController().signal,
+    async (_url, init) => {
+      const ids = Object.keys(JSON.parse(String(init?.body)).questions);
+      sizes.push(ids.length);
+      if (ids.length > 16) return new Response('', { status: 413 });
+      successfulIds.push(...ids);
+      return Response.json({
+        answers: Object.fromEntries(
+          ids.map((id) => [id, { type: 'noul', noul: 0.8 }]),
+        ),
+      });
+    },
+    'people',
+    { id: 'ollama:body-limit', provider: 'ollama', model: 'body-limit' },
+  );
+  assert.deepEqual(sizes.slice(0, 3), [64, 32, 16]);
+  assert.deepEqual(
+    successfulIds,
+    EMOJI_SETS.people.emojis.map(({ id }) => id),
+  );
+  assert.equal(Object.keys(result.scores).length, 180);
+});
+
+test('single-question context overflow stops with an actionable error and no upstream text', async () => {
+  let calls = 0;
+  await assert.rejects(
+    classify(
+      'Test',
+      new AbortController().signal,
+      async () => {
+        calls++;
+        return Response.json(
+          { error: 'prompt 0 has 10000 tokens; expected 1–10 private details' },
+          { status: 400 },
+        );
+      },
+      'things',
+      { id: 'ollama:tiny', provider: 'ollama', model: 'tiny' },
+    ),
+    (error: unknown) =>
+      error instanceof ApiError &&
+      !error.unavailable &&
+      /einzelne Bewertung/.test(error.message) &&
+      !/private/.test(error.message),
+  );
+  assert.equal(calls, 2);
+});
+
+test('unrelated validation errors never trigger retries or expose upstream details', async () => {
+  for (const body of [
+    'private invalid body',
+    JSON.stringify({ error: 'private schema error' }),
+  ]) {
+    let calls = 0;
+    await assert.rejects(
+      classify(
+        'Test',
+        new AbortController().signal,
+        async () => {
+          calls++;
+          return new Response(body, { status: 400 });
+        },
+        'things',
+        { id: 'ollama:invalid', provider: 'ollama', model: 'invalid' },
+      ),
+      (error: unknown) =>
+        error instanceof ApiError &&
+        !error.unavailable &&
+        !/private/.test(error.message),
+    );
+    assert.equal(calls, 1);
+  }
+});
+
+test('cancelling a failed batch prevents another attempt', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(
+    classify(
+      'Test',
+      controller.signal,
+      async () => {
+        calls++;
+        controller.abort();
+        return new Response('', { status: 413 });
+      },
+      'things',
+      { id: 'ollama:cancelled', provider: 'ollama', model: 'cancelled' },
+    ),
+    { name: 'AbortError' },
+  );
+  assert.equal(calls, 1);
+});
