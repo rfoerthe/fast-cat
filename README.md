@@ -1,6 +1,6 @@
 # fast cat — Emoji Playground
 
-**fast cat** ist ein interaktiver Emoji-Playground: Beschreibe eine Idee, Kategorie oder Tätigkeit, und die Anwendung findet passende Emojis aus zwei Sets mit jeweils 180 Symbolen. Das Modell Jev bewertet über OpenRouter, wie gut jedes Emoji zu deiner Eingabe passt.
+**fast cat** ist ein interaktiver Emoji-Playground: Beschreibe eine Idee, Kategorie oder Tätigkeit, und die Anwendung findet passende Emojis aus zwei Sets mit jeweils 180 Symbolen. Ein lokales Decision-Modell über Ollama oder Jev über OpenRouter bewertet, wie gut jedes Emoji zu deiner Eingabe passt.
 
 Mit dem Schieberegler **Emoji-Set** wechselst du zwischen **Dinge & Natur** und **Smileys & Gesten**. Das zweite Set enthält Gesichter, Handzeichen und Menschen mit Gesten. Die Suche bleibt beim Wechsel erhalten und bewertet das neu gewählte Set; auch die Suchvorschläge passen sich an.
 
@@ -13,7 +13,8 @@ Voraussetzung: Node.js 22.12+ (getestet mit Node.js 24).
 ```sh
 npm ci
 cp .env.example .env  # Nur falls noch keine .env existiert!
-# OPENROUTER_API_KEY in .env eintragen
+# Für Jev: OPENROUTER_API_KEY in .env eintragen
+# Für lokale Modelle: Ollama starten und z. B. ollama pull clef-flash ausführen
 npm run dev
 ```
 
@@ -27,6 +28,16 @@ npm start
 
 `npm start` liefert den zuvor erstellten Produktionsbuild aus. Der Server bindet ausschließlich an `127.0.0.1`. Die Anwendung ist für lokale Nutzung gebaut; für eine öffentliche Bereitstellung wären Nutzerauthentifizierung und zusätzliche Kosten-/Ratenlimits nötig.
 
+## Decision-Modell auswählen
+
+Das Dropdown oben rechts bietet alle **lokal installierten Ollama-Modelle mit der Fähigkeit `decision`** sowie **Jev via OpenRouter** an. Es liest `/api/tags` und bei Bedarf `/api/show`; damit werden auch eigene Modellnamen erkannt. Chatmodelle und Ollama-Cloudmodelle werden ausgeschlossen. Für Clef Flash wird Ollama 0.35.1 oder neuer benötigt, siehe [Ollama Decision API](https://docs.ollama.com/capabilities/decision).
+
+- Die Verfügbarkeit wird beim Öffnen der Anwendung, danach alle 15 Sekunden und bei Rückkehr ins Browserfenster geprüft. Diese Prüfungen laden keine Modelle und erzeugen keine kostenpflichtigen Entscheidungen. Für OpenRouter werden API-Key-Status und aktive Modellanbieter geprüft.
+- Nicht verfügbare Modelle sind ausgegraut. Beim Darüberfahren oder Tastaturfokus zeigt ein Tooltip die Ursache, etwa einen nicht erreichbaren Ollama-Dienst, ein entferntes Modell oder einen abgelehnten OpenRouter-Key. Die Auswahl lässt sich mit Pfeiltasten, Enter und Escape bedienen.
+- Die zuletzt gewählte verfügbare Auswahl und die bekannten lokalen Modelle stehen in **`.fast-cat/models.json`**. Die Datei ist von Git ausgeschlossen, enthält keinen API-Key und wird atomar geschrieben. Beim Neustart wird die Auswahl wiederhergestellt. Ist sie nicht verfügbar, wird ab dieser Position das nächste aktive Modell gewählt; am Listenende beginnt die Suche wieder oben. Sind alle Modelle offline, bleibt die Suche ohne Modell, bis wieder eines erreichbar ist; die letzte Auswahl bleibt in der Datei erhalten.
+- Ausfälle während einer Auswertung sperren den betroffenen Eintrag für mindestens 30 Sekunden und lösen ebenfalls eine Ersatzwahl aus. Die aktuelle Suche wird mit dem Ersatzmodell erneut ausgewertet. Ein Modellwechsel trennt den Browser-Cache und bricht alte Anfragen ab.
+- Ollama läuft standardmäßig unter `http://127.0.0.1:11434`. Mit `OLLAMA_BASE_URL` lässt sich die Adresse ändern, mit `MODEL_SETTINGS_FILE` der Pfad zur Einstellungsdatei. Für lokale Modelle ist kein OpenRouter-Key erforderlich.
+
 ## Codequalität
 
 ```sh
@@ -39,15 +50,15 @@ Die gemeinsame Konfiguration liegt in `biome.json`. Biome berücksichtigt `.giti
 ## Verhalten
 
 - Beliebiger Text, automatische Auswertung nach 280 ms Tipp-Pause.
-- Pro Text und ausgewähltem Set eine Anfrage mit 180 unabhängigen `noul`-Fragen an **OpenRouters Decisions API**; kein Chat-Completions-Endpunkt und keine simulierten Ergebnisse.
-- Modell standardmäßig `typesafe/jev-1.13`.
+- Pro Text, Modell und ausgewähltem Set 180 unabhängige `noul`-Bewertungen: über **OpenRouters Decisions API** in einer Anfrage, über **Ollamas `/v1/systemone`** in drei sequenziellen Teilanfragen mit 64, 64 und 52 Fragen. Ollama erlaubt maximal 64 Fragen pro Aufruf. Erst vollständige Antworten erscheinen in der Oberfläche.
+- OpenRouter-Modell standardmäßig `typesafe/jev-1.13`; lokale Modelle werden nach Modellnamen sortiert vor Jev angezeigt. Ohne gespeicherte Auswahl wird der erste verfügbare Eintrag genutzt.
 - Alle Antworten werden auf Vollständigkeit und gültige Wahrscheinlichkeiten geprüft.
 - Emojis mit `P(passend) >= Schwelle` steigen auf, der Rest fällt mit Matter.js auf den Boden. Standard: 60 %.
 - Rechts: zehn höchste Wahrscheinlichkeiten. Auf schmalen Geräten: kompakter Regler; einzelne Wahrscheinlichkeiten über anklickbare Emojis.
-- Schwellenänderungen benötigen keine Anfrage; die letzten 30 Kombinationen aus Text und Set werden im Arbeitsspeicher des Browser-Tabs zwischengespeichert.
-- Alte Anfragen werden bei Text- oder Set-Wechsel abgebrochen. Veraltete Ergebnisse erscheinen nie als Ergebnis eines neuen Textes oder eines anderen Sets. Bereits von OpenRouter verarbeitete Anfragen können trotzdem Kosten verursachen.
-- 25 Sekunden Timeout, maximal drei aktive Aufrufe, Anfragevalidierung und verständliche Fehlerzustände für fehlenden Key, Guthaben und Ratenlimits.
-- Laufzeit und Kosten stammen aus echten Aufrufen. Die Laufzeit umfasst den serverseitigen API-Roundtrip, nicht die Tipp-Pause. Kosten werden nur angezeigt, wenn OpenRouter sie liefert.
+- Schwellenänderungen benötigen keine Anfrage; die letzten 30 Kombinationen aus Modell, Text und Set werden im Arbeitsspeicher des Browser-Tabs zwischengespeichert.
+- Alte Anfragen werden bei Text-, Modell- oder Set-Wechsel abgebrochen. Veraltete Ergebnisse erscheinen nie als Ergebnis eines neuen Textes oder eines anderen Sets oder Modells. Bereits von OpenRouter verarbeitete Anfragen können trotzdem Kosten verursachen.
+- 25 Sekunden Timeout für OpenRouter, 120 Sekunden für Ollama (einschließlich erstmaligem Laden), maximal drei aktive Aufrufe, Anfragevalidierung und verständliche Fehlerzustände für fehlenden Key, Guthaben und Ratenlimits.
+- Laufzeit und Kosten stammen aus echten Aufrufen. Die Laufzeit umfasst den serverseitigen API-Roundtrip, nicht die Tipp-Pause. Kosten werden für OpenRouter nur angezeigt, wenn der Anbieter sie liefert. Lokale Ollama-Aufrufe werden mit 0 $ API-Kosten angezeigt.
 - `prefers-reduced-motion` ersetzt die Physikanimation durch eine statische Anordnung.
 
 ## Aufbau
@@ -57,7 +68,9 @@ Die gemeinsame Konfiguration liegt in `biome.json`. Biome berücksichtigt `.giti
 - `src/useClassification.ts`: Debounce, Abbruch, Cache und Fehlerbehandlung.
 - `shared/emojis.ts`: beide Kataloge und gemeinsame Datentypen.
 - `server/index.ts`: lokaler Express-Server, API und Vite/Produktionsauslieferung.
-- `server/classify.ts`: OpenRouter-Anbindung und Validierung.
+- `server/classify.ts`: OpenRouter-/Ollama-Anbindung, Teilanfragen und Validierung.
+- `server/models.ts`: Modellerkennung, Verfügbarkeit, Ersatzwahl und Dateispeicherung.
+- `src/ModelPicker.tsx`, `src/useModels.ts`: zugängliches Dropdown, Tooltips und Statusaktualisierung.
 - `server/classify.test.ts`: Eingabe-/Antwortvalidierung, Header, Batch-Request und Fehlerfälle.
 
 ## API-Grundlage und Überprüfung

@@ -189,3 +189,85 @@ test('people requests send only the 180 selected emojis and return their set ide
     else process.env.OPENROUTER_API_KEY = oldKey;
   }
 });
+
+test('Ollama scores all 180 emojis in batches of at most 64 without an API key', async () => {
+  const oldKey = process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_API_KEY;
+  try {
+    for (const setId of ['things', 'people'] as const) {
+      const ids: string[] = [];
+      const sizes: number[] = [];
+      const controller = new AbortController();
+      const result = await classify(
+        'Gesund essen',
+        controller.signal,
+        async (url, init) => {
+          assert.match(String(url), /\/v1\/systemone$/);
+          assert.equal(new Headers(init?.headers).get('Authorization'), null);
+          assert.equal(init?.signal, controller.signal);
+          assert.ok(Buffer.byteLength(String(init?.body)) <= 65_536);
+          const body = JSON.parse(String(init?.body));
+          assert.equal(body.model, 'clef-flash:latest');
+          assert.equal(body.state.description, 'Gesund essen');
+          const batch = Object.keys(body.questions);
+          sizes.push(batch.length);
+          ids.push(...batch);
+          return Response.json({
+            model: body.model,
+            answers: Object.fromEntries(
+              batch.map((id) => [id, { type: 'noul', noul: 0.9 }]),
+            ),
+          });
+        },
+        setId,
+        {
+          id: 'ollama:clef-flash:latest',
+          provider: 'ollama',
+          model: 'clef-flash:latest',
+        },
+      );
+      assert.deepEqual(sizes, [64, 64, 52]);
+      assert.deepEqual(
+        ids,
+        EMOJI_SETS[setId].emojis.map((emoji) => emoji.id),
+      );
+      assert.equal(Object.keys(result.scores).length, 180);
+      assert.equal(result.modelId, 'ollama:clef-flash:latest');
+      assert.equal(result.costUsd, 0);
+    }
+  } finally {
+    if (oldKey !== undefined) process.env.OPENROUTER_API_KEY = oldKey;
+  }
+});
+
+test('Ollama rejects partial batches and marks runner failures as unavailable', async () => {
+  const selected = {
+    id: 'ollama:custom',
+    provider: 'ollama' as const,
+    model: 'custom',
+  };
+  await assert.rejects(
+    classify(
+      'Test',
+      new AbortController().signal,
+      async () => Response.json({ answers: {} }),
+      'things',
+      selected,
+    ),
+    ApiError,
+  );
+  await assert.rejects(
+    classify(
+      'Test',
+      new AbortController().signal,
+      async () => new Response('private details', { status: 500 }),
+      'things',
+      selected,
+    ),
+    (error: unknown) =>
+      error instanceof ApiError &&
+      error.unavailable &&
+      /Ollama/.test(error.message) &&
+      !error.message.includes('private'),
+  );
+});

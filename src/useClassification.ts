@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Classification, EmojiSetId } from '../shared/emojis';
+import type { ModelCatalog } from '../shared/models';
 /**
  * Klassifiziert einen Suchtext nach 280 ms Tipp-Pause und hält bis zu 30 Ergebnisse im Speicher.
- * Ein Text- oder Set-Wechsel verwirft veraltete Rückmeldungen und bricht laufende Requests lokal ab.
+ * Ein Text-, Modell- oder Set-Wechsel verwirft veraltete Rückmeldungen und bricht laufende Requests lokal ab.
  * @param query Unverarbeiteter Text aus dem Suchfeld; äußere Leerzeichen werden entfernt.
  * @returns Zum aktuellen Text passendes Ergebnis, Lade-/Fehlerstatus und eine Retry-Funktion.
  */
-export function useClassification(query: string, setId: EmojiSetId) {
+export function useClassification(
+  query: string,
+  setId: EmojiSetId,
+  modelId: string | null,
+  onCatalog: (catalog: ModelCatalog) => void,
+) {
   const [result, setResult] = useState<Classification | null>(null);
   const [failure, setFailure] = useState<{
     key: string;
@@ -18,17 +24,21 @@ export function useClassification(query: string, setId: EmojiSetId) {
   // Der Cache gehört dieser Hook-Instanz; Treffer verändern die Einfügereihenfolge nicht.
   const cache = useRef(new Map<string, Classification>());
   const normalized = query.trim();
-  const cacheKey = JSON.stringify([setId, normalized]);
+  const cacheKey = JSON.stringify([modelId, setId, normalized]);
   const error = failure?.key === cacheKey ? failure.message : '';
   const currentResult =
-    result?.query === normalized && result.setId === setId ? result : null;
+    result?.query === normalized &&
+    result.setId === setId &&
+    result.modelId === modelId
+      ? result
+      : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt löst einen erneuten Request für denselben Suchtext aus.
   useEffect(() => {
     // Zusätzlich zum AbortSignal schützt dieses Flag vor spät eintreffenden Rückmeldungen.
     let current = true;
     const controller = new AbortController();
     setFailure(null);
-    if (!normalized) {
+    if (!normalized || !modelId) {
       setResult(null);
       setPending(false);
       return;
@@ -46,15 +56,17 @@ export function useClassification(query: string, setId: EmojiSetId) {
         const response = await fetch('/api/classify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: normalized, setId }),
+          body: JSON.stringify({ query: normalized, setId, modelId }),
           signal: controller.signal,
         });
         const data = await response.json();
-        if (!response.ok)
+        if (!response.ok) {
+          if (current && data.catalog) onCatalog(data.catalog);
           throw new Error(data.error || 'Die Auswertung ist fehlgeschlagen.');
+        }
         if (current) {
           cache.current.set(cacheKey, data);
-          // FIFO-Verdrängung: Bei mehr als 30 Text-/Set-Kombinationen entfällt der zuerst gespeicherte Eintrag.
+          // FIFO-Verdrängung: Bei mehr als 30 Modell-/Text-/Set-Kombinationen entfällt der zuerst gespeicherte Eintrag.
           if (cache.current.size > 30) {
             const oldest = cache.current.keys().next();
             if (!oldest.done) cache.current.delete(oldest.value);
@@ -79,12 +91,13 @@ export function useClassification(query: string, setId: EmojiSetId) {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [normalized, setId, cacheKey, attempt]);
-  // Ergebnisse anderer Texte oder Sets ausblenden, auch im Render vor dem nächsten Effektlauf.
+  }, [normalized, setId, modelId, cacheKey, attempt, onCatalog]);
+  // Ergebnisse anderer Texte, Modelle oder Sets ausblenden, auch im Render vor dem nächsten Effektlauf.
   // retry durchläuft denselben Cache-Pfad; vorhandene Treffer werden dadurch nicht neu geladen.
   return {
     result: currentResult,
-    pending: Boolean(normalized) && (pending || (!error && !currentResult)),
+    pending:
+      Boolean(normalized && modelId) && (pending || (!error && !currentResult)),
     error,
     retry: () => setAttempt((value) => value + 1),
   };
