@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { resolve } from 'node:path';
-import { ApiError, classify, parseQuery } from './classify.ts';
+import { ApiError, classify, parseQuery, parseSetId } from './classify.ts';
 /** Lokaler HTTP-Einstiegspunkt: JSON-API und Entwicklungs- bzw. Produktionsoberfläche. */
 const app = express();
 app.disable('x-powered-by');
@@ -34,6 +34,7 @@ app.post('/api/classify', async (req, res) => {
     if (origin && new URL(origin).host !== req.get('host'))
       throw new ApiError(403, 'Diese Anfrage stammt nicht von der Anwendung.');
     const query = parseQuery(req.body);
+    const setId = parseSetId(req.body);
     if (active >= 3)
       throw new ApiError(
         429,
@@ -42,7 +43,7 @@ app.post('/api/classify', async (req, res) => {
     active++;
     counted = true;
     res.setHeader('Cache-Control', 'no-store');
-    res.json(await classify(query, controller.signal));
+    res.json(await classify(query, controller.signal, fetch, setId));
   } catch (error) {
     // Nach einem Verbindungsabbruch kann keine Fehlerantwort mehr zugestellt werden.
     if (res.destroyed) return;

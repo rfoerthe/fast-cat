@@ -1,4 +1,8 @@
-import { EMOJIS, type Classification } from '../shared/emojis.ts';
+import {
+  EMOJI_SETS,
+  type EmojiSetId,
+  type Classification,
+} from '../shared/emojis.ts';
 /** Fehler mit HTTP-Status und einer Meldung, die der API-Handler an die Oberfläche weitergeben darf. */
 export class ApiError extends Error {
   /** Übernimmt den HTTP-Status und übergibt die lesbare Fehlermeldung an Error. */
@@ -30,12 +34,21 @@ export function parseQuery(body: unknown): string {
     );
   return query;
 }
+/** Fehlende Set-Auswahl bleibt für bisherige API-Clients beim ursprünglichen Katalog. */
+export function parseSetId(body: unknown): EmojiSetId {
+  if (!body || typeof body !== 'object' || !('setId' in body)) return 'things';
+  if (body.setId === 'things' || body.setId === 'people') return body.setId;
+  throw new ApiError(400, 'Bitte wähle ein gültiges Emoji-Set.');
+}
 /**
  * Extrahiert für jede Katalog-ID eine endliche noul-Wahrscheinlichkeit im Bereich [0, 1].
  * Zusätzliche Antwort-IDs werden ignoriert; alle Katalog-IDs müssen vorhanden sein.
  * @throws ApiError mit Status 502 bei fehlerhaften oder unvollständigen Anbieterantworten.
  */
-export function parseAnswers(data: unknown): Record<string, number> {
+export function parseAnswers(
+  data: unknown,
+  setId: EmojiSetId = 'things',
+): Record<string, number> {
   if (
     !data ||
     typeof data !== 'object' ||
@@ -53,7 +66,7 @@ export function parseAnswers(data: unknown): Record<string, number> {
   >;
   // Der gemeinsame Katalog bestimmt die erwarteten IDs, nicht die ungeprüfte Antwort.
   return Object.fromEntries(
-    EMOJIS.map(({ id }) => {
+    EMOJI_SETS[setId].emojis.map(({ id }) => {
       const answer = answers[id];
       if (
         answer?.type !== 'noul' ||
@@ -83,6 +96,7 @@ export async function classify(
   query: string,
   signal: AbortSignal,
   fetcher: typeof fetch = fetch,
+  setId: EmojiSetId = 'things',
 ): Promise<Classification> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey)
@@ -107,7 +121,7 @@ export async function classify(
       model,
       state: { description: query },
       questions: Object.fromEntries(
-        EMOJIS.map((emoji) => [
+        EMOJI_SETS[setId].emojis.map((emoji) => [
           emoji.id,
           {
             type: 'noul',
@@ -141,7 +155,8 @@ export async function classify(
   // Fehlende Kosten bleiben null, damit die Oberfläche keinen kostenlosen Aufruf behauptet.
   return {
     query,
-    scores: parseAnswers(data),
+    setId,
+    scores: parseAnswers(data, setId),
     elapsedMs: Math.round(performance.now() - start),
     costUsd: typeof data.usage?.cost === 'number' ? data.usage.cost : null,
     model: typeof data.model === 'string' ? data.model : model,

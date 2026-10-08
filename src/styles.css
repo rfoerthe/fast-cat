@@ -180,6 +180,31 @@ h1 span {
   color: #8b90a0;
   margin: 0 0 24px;
 }
+.set-picker {
+  pointer-events: auto;
+  margin: -8px auto 20px;
+  width: fit-content;
+  max-width: 100%;
+}
+.set-picker > label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  color: #8b849e;
+  margin-bottom: 6px;
+}
+.set-slider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #8b90a0;
+}
+.set-slider span.active {
+  color: #65569d;
+  font-weight: 600;
+}
 .search-box {
   pointer-events: auto;
   max-width: 465px;
@@ -429,6 +454,14 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 50%;
   background: #fff;
   border: 3px solid #9489d6;
+}
+.set-slider input[type="range"] {
+  width: 54px;
+  flex-shrink: 0;
+}
+.set-slider input:focus-visible {
+  outline: 2px solid #65569d;
+  outline-offset: 6px;
 }
 .range-labels {
   display: flex;
