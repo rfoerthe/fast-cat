@@ -60,6 +60,17 @@ test('uses one Decisions request, valid HTTP headers and stable emoji IDs', asyn
   process.env.OPENROUTER_API_KEY = 'test-placeholder';
   try {
     let count = 0;
+    let sentRequest: unknown;
+    const upstreamResponse = {
+      answers: validAnswers(),
+      usage: { cost: 0.001 },
+      model: 'typesafe/jev-1.13',
+      metadata: {
+        note: 'Quotes: "test", newline:\n <script>alert(1)</script>',
+        cached: false,
+        extra: null,
+      },
+    };
     /** Prüft Header und Batch-Struktur und ersetzt den echten OpenRouter-Aufruf. */
     const fetcher: typeof fetch = async (url, init) => {
       count++;
@@ -67,14 +78,11 @@ test('uses one Decisions request, valid HTTP headers and stable emoji IDs', asyn
       const headers = new Headers(init?.headers);
       assert.equal(headers.get('authorization'), 'Bearer test-placeholder');
       const body = JSON.parse(String(init?.body));
+      sentRequest = body;
       assert.equal(Object.keys(body.questions).length, 180);
       assert.equal(body.questions.emoji_0.type, 'noul');
       assert.equal(body.state.description, 'Eine Band gründen');
-      return Response.json({
-        answers: validAnswers(),
-        usage: { cost: 0.001 },
-        model: 'typesafe/jev-1.13',
-      });
+      return Response.json(upstreamResponse);
     };
     const result = await classify(
       'Eine Band gründen',
@@ -84,6 +92,17 @@ test('uses one Decisions request, valid HTTP headers and stable emoji IDs', asyn
     assert.equal(count, 1);
     assert.equal(result.scores.emoji_0, 0.96);
     assert.equal(result.costUsd, 0.001);
+    assert.equal(result.requests.length, 1);
+    assert.deepEqual(result.requests[0].request, sentRequest);
+    assert.deepEqual(result.requests[0].response, upstreamResponse);
+    assert.equal(result.requests[0].status, 200);
+    assert.equal(
+      result.requests[0].url,
+      'https://openrouter.ai/api/alpha/decisions',
+    );
+    assert.ok(result.requests[0].elapsedMs >= 0);
+    assert.ok(!JSON.stringify(result.requests).includes('test-placeholder'));
+    assert.ok(!JSON.stringify(result.requests).includes('Authorization'));
     await assert.rejects(
       classify(
         'Test',
@@ -197,6 +216,7 @@ test('Ollama scores all 180 emojis in batches of at most 64 without an API key',
     for (const setId of ['things', 'people'] as const) {
       const ids: string[] = [];
       const sizes: number[] = [];
+      const exchanges: { request: unknown; response: unknown }[] = [];
       const controller = new AbortController();
       const result = await classify(
         'Gesund essen',
@@ -212,12 +232,14 @@ test('Ollama scores all 180 emojis in batches of at most 64 without an API key',
           const batch = Object.keys(body.questions);
           sizes.push(batch.length);
           ids.push(...batch);
-          return Response.json({
+          const response = {
             model: body.model,
             answers: Object.fromEntries(
               batch.map((id) => [id, { type: 'noul', noul: 0.9 }]),
             ),
-          });
+          };
+          exchanges.push({ request: body, response });
+          return Response.json(response);
         },
         setId,
         {
@@ -234,6 +256,12 @@ test('Ollama scores all 180 emojis in batches of at most 64 without an API key',
       assert.equal(Object.keys(result.scores).length, 180);
       assert.equal(result.modelId, 'ollama:clef-flash:latest');
       assert.equal(result.costUsd, 0);
+      assert.equal(result.requests.length, 3);
+      assert.deepEqual(
+        result.requests.map(({ request, response }) => ({ request, response })),
+        exchanges,
+      );
+      assert.ok(result.requests.every(({ status }) => status === 200));
     }
   } finally {
     if (oldKey !== undefined) process.env.OPENROUTER_API_KEY = oldKey;
@@ -319,6 +347,13 @@ test('context overflow shrinks batches, preserves all scores and remembers the s
   assert.ok(learnedSize < 64);
   assert.deepEqual(successfulIds, expectedIds);
   assert.equal(Object.keys(first.scores).length, 180);
+  assert.equal(first.requests.length, requestedSizes.length);
+  assert.equal(first.requests[0].status, 400);
+  assert.match(
+    String((first.requests[0].response as { error: string }).error),
+    /expected 1–2050/,
+  );
+  assert.ok(first.requests.slice(1).every(({ status }) => status === 200));
   requestedSizes = [];
   successfulIds = [];
   await run();
@@ -344,7 +379,10 @@ test('HTTP 413 retries smaller batches without dropping any emoji', async () => 
     async (_url, init) => {
       const ids = Object.keys(JSON.parse(String(init?.body)).questions);
       sizes.push(ids.length);
-      if (ids.length > 16) return new Response('', { status: 413 });
+      if (ids.length > 16)
+        return new Response(ids.length > 32 ? 'proxy <limit> exceeded' : '', {
+          status: 413,
+        });
       successfulIds.push(...ids);
       return Response.json({
         answers: Object.fromEntries(
@@ -361,6 +399,13 @@ test('HTTP 413 retries smaller batches without dropping any emoji', async () => 
     EMOJI_SETS.people.emojis.map(({ id }) => id),
   );
   assert.equal(Object.keys(result.scores).length, 180);
+  assert.equal(result.requests.length, sizes.length);
+  assert.deepEqual(
+    result.requests.slice(0, 3).map(({ status }) => status),
+    [413, 413, 200],
+  );
+  assert.equal(result.requests[0].response, 'proxy <limit> exceeded');
+  assert.equal(result.requests[1].response, null);
 });
 
 test('single-question context overflow stops with an actionable error and no upstream text', async () => {

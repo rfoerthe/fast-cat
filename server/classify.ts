@@ -3,6 +3,7 @@ import {
   EMOJI_SETS,
   type EmojiSetId,
   type Classification,
+  type ModelRequest,
 } from '../shared/emojis.ts';
 /** Fehler mit HTTP-Status und einer Meldung, die der API-Handler an die Oberfläche weitergeben darf. */
 export class ApiError extends Error {
@@ -88,17 +89,14 @@ export function parseAnswers(
 // Pro Ollama-Server und Modell die kleinere Batchgröße merken, wenn dessen Kontext nicht ausreicht.
 const localBatchSizes = new Map<string, number>();
 
-/** Nur bekannte Größenfehler erlauben einen Retry; rohe Anbietertexte gelangen nicht zur Oberfläche. */
-async function smallerBatch(
-  response: Response,
+/** Nur bekannte Größenfehler erlauben einen Retry; übrige Fehler werden nicht erneut gesendet. */
+function smallerBatch(
+  status: number,
+  data: unknown,
   size: number,
-): Promise<number | null> {
-  if (response.status === 413) {
-    await response.body?.cancel();
-    return Math.max(1, Math.floor(size / 2));
-  }
-  if (response.status !== 400) return null;
-  const data: unknown = await response.json().catch(() => null);
+): number | null {
+  if (status === 413) return Math.max(1, Math.floor(size / 2));
+  if (status !== 400) return null;
   if (
     !data ||
     typeof data !== 'object' ||
@@ -131,7 +129,7 @@ async function smallerBatch(
  * @param query Bereits durch parseQuery validierter und getrimmter Suchtext.
  * @param signal Verbindet den Anbieteraufruf mit Timeout und Abbruch des lokalen Requests.
  * @param fetcher Austauschbarer HTTP-Client für Tests ohne Netzwerkzugriff oder API-Kosten.
- * @returns Validierte Bewertungen, Modellname, gemessene Laufzeit und gegebenenfalls Kosten.
+ * @returns Validierte Bewertungen, Modellname, Laufzeit, Kosten und alle beteiligten Request-/Response-Bodies.
  * @throws ApiError bei fehlendem Schlüssel, Anbieterfehlern oder ungültigen Bewertungen.
  * Netzwerk-, JSON- und Abbruchfehler werden an den aufrufenden Handler weitergereicht.
  */
@@ -183,10 +181,17 @@ export async function classify(
   const answers: Record<string, unknown> = {};
   let costUsd: number | null = local ? 0 : null;
   let responseModel = model;
+  const requests: ModelRequest[] = [];
   // Ollama erlaubt maximal 64 Fragen und 64 KiB je Request. Sequenziell hält den lokalen Runner frei.
   for (let offset = 0; offset < entries.length; ) {
     signal.throwIfAborted();
     const size = Math.min(batchSize, entries.length - offset);
+    const request = {
+      model,
+      state: { description: query },
+      questions: Object.fromEntries(entries.slice(offset, offset + size)),
+    };
+    const requestStart = performance.now();
     const response = await fetcher(url, {
       method: 'POST',
       signal,
@@ -197,15 +202,26 @@ export async function classify(
             'Content-Type': 'application/json',
             'X-Title': 'fast cat - Emoji Playground',
           },
-      body: JSON.stringify({
-        model,
-        state: { description: query },
-        questions: Object.fromEntries(entries.slice(offset, offset + size)),
-      }),
+      body: JSON.stringify(request),
+    });
+    const text = await response.text();
+    let data: unknown;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (error) {
+      if (response.ok) throw error;
+      data = text;
+    }
+    requests.push({
+      url,
+      status: response.status,
+      elapsedMs: Math.round(performance.now() - requestStart),
+      request,
+      response: data,
     });
 
     if (!response.ok) {
-      const reduced = local ? await smallerBatch(response, size) : null;
+      const reduced = local ? smallerBatch(response.status, data, size) : null;
       if (reduced !== null) {
         if (size === 1)
           throw new ApiError(
@@ -219,7 +235,6 @@ export async function classify(
         localBatchSizes.set(batchKey, batchSize);
         continue;
       }
-      if (!response.bodyUsed) await response.body?.cancel();
       const errors: Record<number, string> = local
         ? {
             404: 'Das Ollama-Modell oder der System-One-Endpunkt ist nicht verfügbar. Bitte Installation und Ollama-Version prüfen.',
@@ -241,20 +256,34 @@ export async function classify(
           response.status !== 422,
       );
     }
-    const data = await response.json();
-    if (!data || typeof data.answers !== 'object' || !data.answers)
+    if (
+      !data ||
+      typeof data !== 'object' ||
+      !('answers' in data) ||
+      typeof data.answers !== 'object' ||
+      !data.answers
+    )
       throw new ApiError(
         502,
         'Das Modell hat keine gültigen Bewertungen zurückgegeben.',
       );
     Object.assign(answers, data.answers);
-    if (!local && typeof data.usage?.cost === 'number')
+    if (
+      !local &&
+      'usage' in data &&
+      data.usage &&
+      typeof data.usage === 'object' &&
+      'cost' in data.usage &&
+      typeof data.usage.cost === 'number'
+    )
       costUsd = (costUsd ?? 0) + data.usage.cost;
-    if (typeof data.model === 'string') responseModel = data.model;
+    if ('model' in data && typeof data.model === 'string')
+      responseModel = data.model;
     offset += size;
   }
   // Fehlende Kosten bleiben null, damit die Oberfläche keinen kostenlosen Aufruf behauptet.
   return {
+    requests,
     query,
     setId,
     scores: parseAnswers({ answers }, setId),
