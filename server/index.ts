@@ -2,18 +2,63 @@ import 'dotenv/config';
 import express from 'express';
 import { resolve } from 'node:path';
 import { ApiError, classify, parseQuery, parseSetId } from './classify.ts';
+import { ModelRegistry } from './models.ts';
+import type { DecisionModel } from '../shared/models.ts';
 /** Lokaler HTTP-Einstiegspunkt: JSON-API und Entwicklungs- bzw. Produktionsoberfläche. */
 const app = express();
 app.disable('x-powered-by');
 // Begrenzt bereits beim Einlesen die Größe des JSON-Request-Bodys.
 app.use(express.json({ limit: '4kb' }));
-// Meldet nur Konfigurationsstatus und Modell; der API-Schlüssel bleibt auf dem Server.
-app.get('/api/health', (_req, res) =>
-  res.json({
-    configured: Boolean(process.env.OPENROUTER_API_KEY),
-    model: process.env.OPENROUTER_MODEL || 'typesafe/jev-1.13',
-  }),
-);
+const models = new ModelRegistry();
+// Eine fremde Website darf weder die Auswahl verändern noch Klassifizierungen auslösen.
+app.use('/api', (req, _res, next) => {
+  const origin = req.get('origin');
+  if (origin && new URL(origin).host !== req.get('host')) {
+    next(new ApiError(403, 'Diese Anfrage stammt nicht von der Anwendung.'));
+    return;
+  }
+  next();
+});
+app.get('/api/models', async (_req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await models.refresh());
+  } catch (error) {
+    res.status(500).json({
+      error:
+        error instanceof ApiError
+          ? error.message
+          : 'Die Modelleinstellungen konnten nicht gelesen werden.',
+    });
+  }
+});
+app.post('/api/models/select', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await models.select(req.body?.modelId));
+  } catch (error) {
+    res.status(error instanceof ApiError ? error.status : 500).json({
+      error:
+        error instanceof ApiError
+          ? error.message
+          : 'Die Modellauswahl konnte nicht gespeichert werden.',
+      catalog: models.snapshot(),
+    });
+  }
+});
+app.get('/api/health', async (_req, res) => {
+  try {
+    const catalog = await models.refresh();
+    res.json({
+      configured: catalog.selectedId !== null,
+      model:
+        catalog.models.find((model) => model.id === catalog.selectedId)
+          ?.model ?? null,
+    });
+  } catch {
+    res.status(500).json({ configured: false, model: null });
+  }
+});
 /** Anzahl zugelassener, noch laufender Klassifizierungen in diesem Serverprozess. */
 let active = 0;
 /**
@@ -23,16 +68,18 @@ let active = 0;
 app.post('/api/classify', async (req, res) => {
   // Nur tatsächlich belegte Plätze dürfen im finally-Block wieder freigegeben werden.
   let counted = false;
+  let selection: DecisionModel | undefined;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25_000);
+  let timedOut = false;
+  const abortOnTimeout = () => {
+    timedOut = true;
+    controller.abort();
+  };
+  let timeout = setTimeout(abortOnTimeout, 120_000);
   res.on('close', () => {
     if (!res.writableEnded) controller.abort();
   });
   try {
-    // Ein mitgesendeter Origin muss zum Host passen; Anfragen ohne Origin sind erlaubt.
-    const origin = req.get('origin');
-    if (origin && new URL(origin).host !== req.get('host'))
-      throw new ApiError(403, 'Diese Anfrage stammt nicht von der Anwendung.');
     const query = parseQuery(req.body);
     const setId = parseSetId(req.body);
     if (active >= 3)
@@ -42,22 +89,53 @@ app.post('/api/classify', async (req, res) => {
       );
     active++;
     counted = true;
+    selection = await models.resolve(req.body?.modelId);
+    if (selection.provider === 'openrouter') {
+      clearTimeout(timeout);
+      timeout = setTimeout(abortOnTimeout, 25_000);
+    }
     res.setHeader('Cache-Control', 'no-store');
-    res.json(await classify(query, controller.signal, fetch, setId));
+    res.json(await classify(query, controller.signal, fetch, setId, selection));
   } catch (error) {
     // Nach einem Verbindungsabbruch kann keine Fehlerantwort mehr zugestellt werden.
     if (res.destroyed) return;
+    let catalog = models.snapshot();
+    if (
+      selection &&
+      (timedOut ||
+        (!controller.signal.aborted &&
+          (!(error instanceof ApiError) || error.unavailable)))
+    ) {
+      const reason = timedOut
+        ? 'Das Decision-Modell antwortet nicht innerhalb des Zeitlimits.'
+        : error instanceof ApiError
+          ? error.message
+          : `Die Verbindung zu ${selection.provider === 'ollama' ? 'Ollama' : 'OpenRouter'} ist fehlgeschlagen.`;
+      try {
+        catalog = await models.unavailable(selection.id, reason);
+      } catch (saveError) {
+        res.status(500).json({
+          error:
+            saveError instanceof ApiError
+              ? saveError.message
+              : 'Die Modellauswahl konnte nicht gespeichert werden.',
+        });
+        return;
+      }
+    }
     if (error instanceof ApiError)
-      res.status(error.status).json({ error: error.message });
+      res.status(error.status).json({ error: error.message, catalog });
     else if (controller.signal.aborted)
       res.status(504).json({
         error:
           'Die Auswertung hat zu lange gedauert. Bitte versuche es erneut.',
+        catalog,
       });
     else
       res.status(502).json({
         error:
-          'Die Verbindung zu Jev ist fehlgeschlagen. Bitte versuche es erneut.',
+          'Die Verbindung zum Decision-Modell ist fehlgeschlagen. Bitte versuche es erneut.',
+        catalog,
       });
   } finally {
     clearTimeout(timeout);
@@ -88,6 +166,10 @@ app.use(
     res: express.Response,
     _next: express.NextFunction,
   ) => {
+    if (error instanceof ApiError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
     const status =
       error &&
       typeof error === 'object' &&

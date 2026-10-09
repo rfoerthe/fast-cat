@@ -50,6 +50,150 @@ a {
   color: inherit;
   text-decoration: none;
 }
+/* Fokusfähige, gesperrte Menüeinträge zeigen ihre Ursache auch ohne Maus. */
+.model-picker {
+  position: relative;
+  min-width: 0;
+  max-width: 330px;
+}
+.model-trigger {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #e6e3ef;
+  background: #faf9fd;
+  border-radius: 9px;
+  padding: 9px 12px;
+  font-size: 12px;
+  max-width: 100%;
+}
+.model-trigger-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-trigger > svg,
+.model-dot {
+  flex-shrink: 0;
+}
+.model-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #70a991;
+}
+.model-dot.offline {
+  background: #b4937f;
+}
+.model-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 330px;
+  max-width: calc(100vw - 32px);
+  max-height: 70dvh;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid #e6e3ef;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 12px 35px #342a5220;
+  z-index: 10;
+}
+.model-menu-heading {
+  padding: 6px 9px 10px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #8b849e;
+}
+.model-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 12px;
+}
+.model-option > span:first-child {
+  min-width: 0;
+}
+.model-option-name {
+  display: block;
+  overflow-wrap: anywhere;
+  font-weight: 550;
+}
+.model-option-provider {
+  display: block;
+  color: #8b90a0;
+  margin-top: 4px;
+}
+.model-option:hover,
+.model-option:focus-visible {
+  background: #f5f2fb;
+}
+.model-option[aria-checked="true"] {
+  color: #7360b0;
+  background: #f5f2fb;
+}
+.model-option.unavailable {
+  color: #a8a8af;
+  cursor: not-allowed;
+}
+.model-option.unavailable .model-option-provider,
+.unavailable-label {
+  color: #a8a8af;
+  font-size: 10px;
+}
+.model-tooltip {
+  display: none;
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #393443;
+  color: white;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.model-option-wrap:hover .model-tooltip,
+.model-option-wrap:focus-within .model-tooltip {
+  display: block;
+}
+.model-discovery-error {
+  margin: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #9b704e;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 599px) {
+  .header {
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .header-right {
+    gap: 8px;
+    min-width: 0;
+  }
+  .model-picker {
+    max-width: min(220px, 48vw);
+  }
+  .model-trigger {
+    max-width: 100%;
+    padding: 8px;
+    font-size: 11px;
+    gap: 6px;
+  }
+  .model-menu {
+    right: -30px;
+  }
+}
+
 /* Die App füllt mindestens das Fenster; das Spielfeld nimmt den freien Platz ein. */
 .app-shell {
   min-height: 100dvh;

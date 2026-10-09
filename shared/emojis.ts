@@ -384,6 +384,7 @@ export type EmojiSetId = keyof typeof EMOJI_SETS;
 
 /** Erfolgreiche API-Antwort, die der Browser je normalisiertem Suchtext zwischenspeichert. */
 export type Classification = {
+  modelId?: string;
   /** Katalog, für den diese Bewertungen gelten. */
   setId: EmojiSetId;
   /** Vollständige Zuordnung der Katalog-IDs zu Wahrscheinlichkeiten im Bereich [0, 1]. */

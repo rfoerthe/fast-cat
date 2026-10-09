@@ -17,6 +17,8 @@ import {
 import { EMOJI_SETS, EXAMPLES, type EmojiSetId } from '../shared/emojis';
 import { useClassification } from './useClassification';
 import EmojiField from './EmojiField';
+import ModelPicker from './ModelPicker';
+import { useModels } from './useModels';
 /**
  * Verbindet Suche, Klassifizierung, Emoji-Feld und Ergebnisinspektor.
  * Die Treffer-Schwelle filtert vorhandene Bewertungen lokal und löst keine API-Anfrage aus.
@@ -50,20 +52,21 @@ export default function App() {
   const [help, setHelp] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState('');
-  // null kennzeichnet die noch unbekannte Serverkonfiguration vor der Health-Antwort.
-  const [configured, setConfigured] = useState<boolean | null>(null);
+  const models = useModels();
+  const modelId = models.selected?.id ?? null;
+  const modelName =
+    models.selected?.provider === 'openrouter' &&
+    models.selected.model === 'typesafe/jev-1.13'
+      ? 'Jev'
+      : (models.selected?.model ?? 'Das Modell');
   const input = useRef<HTMLInputElement>(null);
   const helpDialog = useRef<HTMLDialogElement>(null);
-  const { result, pending, error, retry } = useClassification(query, setId);
-  // Den Konfigurationsstatus einmal laden und den Aufruf beim Unmount abbrechen.
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch('/api/health', { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data) => setConfigured(data.configured))
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
+  const { result, pending, error, retry } = useClassification(
+    query,
+    setId,
+    modelId,
+    models.acceptCatalog,
+  );
   // Die Kopierbestätigung nach 1,8 Sekunden zurücksetzen.
   useEffect(() => {
     if (!copied) return;
@@ -118,18 +121,11 @@ export default function App() {
         <span className="header-divider" />
         <span className="header-label">EMOJI PLAYGROUND</span>
         <div className="header-right">
-          <span
-            className={`connection ${configured === false ? 'offline' : ''}`}
-          >
-            <i />
-            {configured === null
-              ? 'Verbinde …'
-              : configured
-                ? result
-                  ? 'Jev verbunden'
-                  : 'Jev bereit'
-                : 'API-Key fehlt'}
-          </span>
+          <ModelPicker
+            catalog={models.catalog}
+            saving={models.saving}
+            onSelect={models.select}
+          />
           <button
             type="button"
             className="icon-button help-button"
@@ -156,7 +152,7 @@ export default function App() {
             Ein Gedanke. <span>Viele Treffer.</span>
           </h1>
           <p className="intro">
-            Beschreibe, was du suchst. Jev findet die passenden Emojis.
+            Beschreibe, was du suchst. {modelName} findet die passenden Emojis.
           </p>
           <div className="set-picker">
             <label htmlFor="emoji-set">Emoji-Set</label>
@@ -238,7 +234,12 @@ export default function App() {
             ))}
           </div>
           <div className="search-feedback" role="status" aria-live="polite">
-            {error ? (
+            {models.error || (models.catalog && !modelId) ? (
+              <div className="error-message">
+                {models.error ||
+                  'Kein Decision-Modell verfügbar. Prüfe die Hinweise in der Modellauswahl.'}
+              </div>
+            ) : error ? (
               <div className="error-message">
                 {error}
                 <button type="button" onClick={retry}>
@@ -246,7 +247,9 @@ export default function App() {
                 </button>
               </div>
             ) : pending ? (
-              <span>Jev bewertet {emojis.length} Emojis …</span>
+              <span>
+                {modelName} bewertet {emojis.length} Emojis …
+              </span>
             ) : result ? (
               <span className="result-summary">
                 <i />
@@ -282,7 +285,7 @@ export default function App() {
               <SlidersHorizontal size={15} /> Live-Einblicke
             </span>
             <span className="live-pill">
-              <i /> JEV
+              <i /> {models.selected?.provider === 'ollama' ? 'LOKAL' : 'JEV'}
             </span>
           </div>
           <div className="threshold-label">
@@ -356,7 +359,7 @@ export default function App() {
                 <span>
                   {pending
                     ? 'Alle Emojis werden parallel bewertet.'
-                    : 'Hier siehst du, wie sicher Jev ist.'}
+                    : 'Hier siehst du, wie sicher das Modell ist.'}
                 </span>
               </p>
             </div>
@@ -409,14 +412,21 @@ export default function App() {
             {result?.costUsd != null
               ? `${result.costUsd.toLocaleString('de-DE', { maximumFractionDigits: 6 })} $ pro Auswertung`
               : 'Powered by'}{' '}
-            <strong>{result?.costUsd != null ? '' : 'Jev'}</strong>
+            <strong>{result?.costUsd != null ? '' : modelName}</strong>
           </span>
           <a
-            href="https://openrouter.ai/typesafe/jev-1.13"
+            href={
+              models.selected?.provider === 'ollama'
+                ? 'https://docs.ollama.com/capabilities/decision'
+                : 'https://openrouter.ai/typesafe/jev-1.13'
+            }
             target="_blank"
             rel="noreferrer"
           >
-            Jev via OpenRouter <ArrowUpRight size={13} />
+            {models.selected?.provider === 'ollama'
+              ? 'Ollama lokal'
+              : 'Jev via OpenRouter'}{' '}
+            <ArrowUpRight size={13} />
           </a>
         </div>
       </footer>
@@ -442,10 +452,10 @@ export default function App() {
         <span className="help-emoji">🐈</span>
         <h2>Einfach mal denken lassen.</h2>
         <p>
-          Schreibe eine Kategorie oder eine Idee in das Suchfeld. Jev
-          entscheidet für jedes der 180 Emojis im aktiven Set, wie gut es dazu
-          passt. Mit dem Schieberegler „Emoji-Set“ wechselst du zwischen Dinge
-          &amp; Natur und Smileys &amp; Gesten.
+          Schreibe eine Kategorie oder eine Idee in das Suchfeld. Das gewählte
+          Decision-Modell entscheidet für jedes der 180 Emojis im aktiven Set,
+          wie gut es dazu passt. Mit dem Schieberegler „Emoji-Set“ wechselst du
+          zwischen Dinge &amp; Natur und Smileys &amp; Gesten.
         </p>
         <p>
           Ab der eingestellten Schwelle steigen Emojis nach oben. Die anderen
@@ -459,8 +469,10 @@ export default function App() {
         </p>
         <div className="help-note">
           Deine Eingabe wird nach einer kurzen Tipp-Pause über den lokalen
-          Server an OpenRouter gesendet. Die Zahlen sind Modellbewertungen,
-          keine Garantie für einen richtigen Treffer.
+          Server an das ausgewählte Modell gesendet: lokal an Ollama oder online
+          an OpenRouter. Die Modellauswahl oben wird gespeichert; bei einem
+          Ausfall wird das nächste verfügbare Modell gewählt. Die Zahlen sind
+          Modellbewertungen, keine Garantie für einen richtigen Treffer.
         </div>
         <button
           type="button"
