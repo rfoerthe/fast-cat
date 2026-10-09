@@ -382,8 +382,19 @@ export const EMOJI_SETS = {
 };
 export type EmojiSetId = keyof typeof EMOJI_SETS;
 
+/** Tatsächlicher Modellaufruf; enthält ausschließlich Bodies und keine Authentifizierungsheader. */
+export type ModelRequest = {
+  url: string;
+  status: number;
+  elapsedMs: number;
+  request: Record<string, unknown>;
+  /** JSON-Antwort; bei leerem Body null, bei Nicht-JSON-Antworten der rohe Text. */
+  response: unknown;
+};
+
 /** Erfolgreiche API-Antwort, die der Browser je normalisiertem Suchtext zwischenspeichert. */
 export type Classification = {
+  requests: ModelRequest[];
   modelId?: string;
   /** Katalog, für den diese Bewertungen gelten. */
   setId: EmojiSetId;

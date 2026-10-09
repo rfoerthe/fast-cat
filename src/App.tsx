@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
+  CodeXml,
   Copy,
   LoaderCircle,
   RotateCcw,
@@ -14,11 +15,17 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { EMOJI_SETS, EXAMPLES, type EmojiSetId } from '../shared/emojis';
+import {
+  EMOJI_SETS,
+  EXAMPLES,
+  type EmojiSetId,
+  type Classification,
+} from '../shared/emojis';
 import { useClassification } from './useClassification';
 import EmojiField from './EmojiField';
 import ModelPicker from './ModelPicker';
 import { useModels } from './useModels';
+import ModelRequestsDialog from './ModelRequestsDialog';
 /**
  * Verbindet Suche, Klassifizierung, Emoji-Feld und Ergebnisinspektor.
  * Die Treffer-Schwelle filtert vorhandene Bewertungen lokal und löst keine API-Anfrage aus.
@@ -52,6 +59,9 @@ export default function App() {
   const [help, setHelp] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState('');
+  const [inspectedResult, setInspectedResult] = useState<Classification | null>(
+    null,
+  );
   const models = useModels();
   const modelId = models.selected?.id ?? null;
   const modelName =
@@ -60,6 +70,7 @@ export default function App() {
       ? 'Jev'
       : (models.selected?.model ?? 'Das Modell');
   const input = useRef<HTMLInputElement>(null);
+  const requestsButton = useRef<HTMLButtonElement>(null);
   const helpDialog = useRef<HTMLDialogElement>(null);
   const { result, pending, error, retry } = useClassification(
     query,
@@ -265,6 +276,14 @@ export default function App() {
                   {copied ? <Check size={13} /> : <Copy size={13} />}{' '}
                   {copied ? 'Kopiert' : 'Kopieren'}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setInspectedResult(result)}
+                  ref={requestsButton}
+                  aria-haspopup="dialog"
+                >
+                  <CodeXml size={13} /> Modellabfragen
+                </button>
               </span>
             ) : (
               <span>{emojis.length} Emojis warten auf deine Idee.</span>
@@ -430,6 +449,13 @@ export default function App() {
           </a>
         </div>
       </footer>
+      {inspectedResult ? (
+        <ModelRequestsDialog
+          result={inspectedResult}
+          returnFocus={requestsButton}
+          onClose={() => setInspectedResult(null)}
+        />
+      ) : null}
       <dialog
         ref={helpDialog}
         className="help-dialog"

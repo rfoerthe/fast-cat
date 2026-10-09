@@ -61,11 +61,13 @@ Die gemeinsame Konfiguration liegt in `biome.json`. Biome berücksichtigt `.giti
 - Alte Anfragen werden bei Text-, Modell- oder Set-Wechsel abgebrochen. Veraltete Ergebnisse erscheinen nie als Ergebnis eines neuen Textes oder eines anderen Sets oder Modells. Bereits von OpenRouter verarbeitete Anfragen können trotzdem Kosten verursachen.
 - 25 Sekunden Timeout für OpenRouter, 120 Sekunden für Ollama (einschließlich erstmaligem Laden), maximal drei aktive Aufrufe, Anfragevalidierung und verständliche Fehlerzustände für fehlenden Key, Guthaben und Ratenlimits.
 - Laufzeit und Kosten stammen aus echten Aufrufen. Die Laufzeit umfasst den serverseitigen API-Roundtrip, nicht die Tipp-Pause. Kosten werden für OpenRouter nur angezeigt, wenn der Anbieter sie liefert. Lokale Ollama-Aufrufe werden mit 0 $ API-Kosten angezeigt.
+- Nach einer erfolgreichen Auswertung öffnet **Modellabfragen** neben **Kopieren** ein modales Protokoll aller beteiligten Modellrequests, einschließlich Ollama-Teilanfragen und Wiederholungen nach Kontext-/Größenfehlern. Jeder Request sowie dessen vollständiger Request- und Response-JSON-Body lassen sich einzeln aufklappen, mit Syntax-Highlighting, HTTP-Status und Laufzeit. Leere Antworten erscheinen als `null`, Nicht-JSON-Fehlerantworten als JSON-String. Authentifizierungsheader werden nicht übernommen. Das Protokoll gehört zum Ergebnis und bleibt auch bei Treffern aus dem Browser-Cache verfügbar.
 - `prefers-reduced-motion` ersetzt die Physikanimation durch eine statische Anordnung.
 
 ## Aufbau
 
 - `src/App.tsx`: Oberfläche, Schwelle, Trefferliste, Kopieren und Hilfe.
+- `src/ModelRequestsDialog.tsx`: modales Request-Protokoll und aufklappbare JSON-Ansicht mit Syntax-Highlighting.
 - `src/EmojiField.tsx`: Physik und Positionierung der 180 Emojis.
 - `src/useClassification.ts`: Debounce, Abbruch, Cache und Fehlerbehandlung.
 - `shared/emojis.ts`: beide Kataloge und gemeinsame Datentypen.
